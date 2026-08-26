@@ -261,7 +261,7 @@
   .footer {
     background: #0f172a;
     text-align: center;
-    padding: 28px 24px;
+    padding: 14px 24px;
     color: var(--text-tertiary);
     font-size: 0.82rem;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -382,7 +382,7 @@
       </form>
 
       <form id="regForm" style="display:none;" onsubmit="return doRegister(event)">
-        <div class="field"><label>昵称</label><input id="regNick" maxlength="20" placeholder="1-20 个字符" required><div class="hint">昵称注册后不可修改</div></div>
+        <div class="field"><label>昵称</label><input id="regNick" maxlength="20" placeholder="1-20 个字符" required></div>
         <div class="field"><label>密码</label><input id="regPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
         <div class="field"><label>确认密码</label><input id="regPass2" type="password" maxlength="50" placeholder="再输入一次" required></div>
         <div class="field" id="inviteField"><label>邀请码</label><input id="regInvite" maxlength="20" required placeholder="请输入邀请码" autocomplete="off"><div class="hint">邀请码：找已注册的朋友要一个，一个邀请码只能注册一次</div></div>

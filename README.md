@@ -1,8 +1,6 @@
 # 🔑 Qxwk 账号通行证（Passport）
 
 > 青翔未阔工作室的统一账号中心。一处登录，处处通行。
->
-> 登录部分从各站点独立出来，做成独立 Worker + 独立 D1。后续 Qxwk 主页、City Footprint、Class-Assistant 等站点逐步接入，一套账号走天下。
 
 ## ✨ 功能一览
 
