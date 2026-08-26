@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="strict-origin">
+<title>登录 - 青翔未阔工作室</title>
+<meta name="description" content="登录 Qxwk 账号通行证，一处登录，通行各站。">
+<link rel="icon" type="image/webp" href="/favicon.webp">
+<style>
+  /* ========= Reset & Base ========= */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-light: #eff6ff;
+    --secondary: #0d9488;
+    --surface: #ffffff;
+    --bg: #f8fafc;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --border: #e2e8f0;
+    --navbar-bg: rgba(255, 255, 255, 0.8);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    --container: 1100px;
+    --nav-height: 64px;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ========= Navbar ========= */
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    height: var(--nav-height);
+    background: var(--navbar-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+  }
+  .navbar-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    gap: 12px;
+  }
+  .navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1.15rem;
+    letter-spacing: 0.3px;
+    transition: opacity var(--transition);
+    flex-shrink: 0;
+  }
+  .navbar-brand:hover { opacity: 0.85; }
+  .brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.25);
+  }
+  .brand-text { line-height: 1.25; }
+  .brand-text b { display: block; font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
+  .brand-text span { font-size: 11px; color: var(--text-tertiary); }
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    background: rgba(37, 99, 235, 0.15);
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 40px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(147, 197, 253, 0.35);
+    transition: all var(--transition);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .back-link:hover {
+    background: rgba(37, 99, 235, 0.3);
+    border-color: rgba(147, 197, 253, 0.6);
+    transform: scale(1.02);
+  }
+
+  /* ========= 登录/注册：左右分屏 ========= */
+  #authView {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 60% 40%;
+    overflow: hidden;
+  }
+  /* 左侧：setup 欢迎动画承载（iframe 无缝填充，与 CityFootprint 一致） */
+  .auth-left {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    background: #e2e2ec;
+  }
+  .setup-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+
+  .auth-right {
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    overflow-y: auto;
+  }
+  .auth-form {
+    width: 100%;
+    max-width: 380px;
+    margin: 0;
+  }
+  .auth-title {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .auth-subtitle {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 28px;
+  }
+
+  /* SSO 来源提示条 */
+  .sso-banner {
+    display: none;
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    font-size: 0.84rem;
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+  .sso-banner.ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+  .sso-banner.warn { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+  /* ========= Tabs ========= */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 4px;
+    border-radius: var(--radius-sm);
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 9px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    transition: all var(--transition);
+    font-family: inherit;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab.active {
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+  }
+
+  /* ========= Form ========= */
+  label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+  input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--surface);
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+  }
+  .field { margin-bottom: 16px; }
+
+  /* ========= Buttons ========= */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+    border-radius: 40px;
+    padding: 11px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: inherit;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    width: 100%;
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-hover), #0f766e);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+  .msg { font-size: 0.84rem; margin-top: 10px; }
+  .msg.error { color: #dc2626; }
+  .msg.ok { color: #16a34a; }
+  .hint { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 4px; }
+
+  /* ========= Footer ========= */
+  .footer {
+    background: #0f172a;
+    text-align: center;
+    padding: 28px 24px;
+    color: var(--text-tertiary);
+    font-size: 0.82rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .footer-copy { opacity: 0.6; }
+
+  /* ========= Responsive ========= */
+  @media (max-width: 768px) {
+    #authView { grid-template-columns: 1fr; grid-template-rows: 28vh 1fr; }
+    .auth-left { height: 100%; }
+    .auth-right { align-items: flex-start; padding: 40px 16px; }
+    .auth-form { max-width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .navbar-inner { padding: 0 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+<meta name="color-scheme" content="light dark">
+<script>
+/* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+(function () {
+  var KEY = 'theme';
+  var root = document.documentElement;
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  function system() { return mq.matches ? 'dark' : 'light'; }
+  function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+  function apply(t) { root.setAttribute('data-theme', t); }
+  function current() { return stored() || system(); }
+  apply(current());
+  function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
+  // 按钮轮询绑定（不依赖 DOMContentLoaded，避免被外部脚本阻塞导致按钮长时间无效）
+  (function tryBind() {
+    var btn = document.getElementById('themeToggle');
+    if (btn) btn.addEventListener('click', toggle);
+    else setTimeout(tryBind, 50);
+  })();
+  if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+  else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+  window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+})();
+</script>
+<style>
+  /* ===== 黑夜模式：主题切换按钮 ===== */
+  .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
+  .theme-toggle:hover { background:var(--primary-subtle); color:var(--primary); }
+  .theme-toggle svg { width:22px; height:22px; }
+  .theme-toggle .icon-sun { display:none; }
+  :root[data-theme="dark"] .theme-toggle .icon-sun { display:block; }
+  :root[data-theme="dark"] .theme-toggle .icon-moon { display:none; }
+
+  /* ===== 黑夜模式：深色变量 ===== */
+  :root { color-scheme: light; --primary-subtle: rgba(37,99,235,0.08); }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --primary-light: rgba(59,130,246,0.16);
+    --primary-subtle: rgba(59,130,246,0.16);
+    --surface:#1e293b; --bg:#0f172a;
+    --text-primary:#e2e8f0; --text-secondary:#94a3b8; --text-tertiary:#64748b;
+    --border:#334155; --navbar-bg:rgba(15,23,42,0.8);
+    --shadow-sm:0 1px 3px rgba(0,0,0,0.4); --shadow-md:0 4px 16px rgba(0,0,0,0.5); --shadow-lg:0 12px 40px rgba(0,0,0,0.6);
+  }
+  :root[data-theme="dark"] .footer { background:#111827; }
+  :root[data-theme="dark"] .back-link { background:rgba(59,130,246,0.16); border-color:rgba(96,165,250,0.35); }
+  :root[data-theme="dark"] .back-link:hover { background:rgba(59,130,246,0.30); border-color:rgba(96,165,250,0.60); }
+
+  /* ===== 黑夜模式：页面元素覆盖 ===== */
+  :root[data-theme="dark"] .auth-right { background: var(--surface); }
+  :root[data-theme="dark"] .auth-left { background: #0f172a; }
+  :root[data-theme="dark"] .sso-banner.ok { background: rgba(16,185,129,0.16); color: #34d399; border-color: rgba(16,185,129,0.3); }
+  :root[data-theme="dark"] .sso-banner.warn { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <div class="navbar-inner">
+    <a href="index.html" class="navbar-brand">
+      <img class="brand-logo" src="/favicon.webp" alt="Qxwk 通行证">
+      <span class="brand-text"><b>Qxwk 通行证</b><span>一处登录，通行各站</span></span>
+    </a>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <a href="https://home.qxwkstudio.top/" class="back-link">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+        返回主页
+      </a>
+    </div>
+  </div>
+</header>
+
+<div id="authView">
+  <div class="auth-left">
+    <iframe src="setup.html" class="setup-frame" title="欢迎" loading="lazy"></iframe>
+  </div>
+  <div class="auth-right">
+    <div class="auth-form">
+      <h2 class="auth-title" id="authTitle">👋 欢迎回来</h2>
+      <p class="auth-subtitle" id="authSubtitle">使用 Qxwk 通行证登录，一处登录，通行各站</p>
+
+      <div class="sso-banner" id="ssoBanner"></div>
+
+      <div class="tabs">
+        <div class="tab active" id="tabLogin" onclick="switchTab('login')">登录</div>
+        <div class="tab" id="tabReg" onclick="switchTab('reg')">注册</div>
+      </div>
+
+      <form id="loginForm" onsubmit="return doLogin(event)">
+        <div class="field"><label>昵称</label><input id="loginNick" maxlength="20" placeholder="你的昵称" required></div>
+        <div class="field"><label>密码</label><input id="loginPass" type="password" maxlength="50" placeholder="密码" required></div>
+        <button class="btn btn-primary" type="submit" id="loginBtn">登录</button>
+        <div class="msg" id="loginMsg"></div>
+      </form>
+
+      <form id="regForm" style="display:none;" onsubmit="return doRegister(event)">
+        <div class="field"><label>昵称</label><input id="regNick" maxlength="20" placeholder="1-20 个字符" required><div class="hint">昵称注册后不可修改</div></div>
+        <div class="field"><label>密码</label><input id="regPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
+        <div class="field"><label>确认密码</label><input id="regPass2" type="password" maxlength="50" placeholder="再输入一次" required></div>
+        <div class="field" id="inviteField"><label>邀请码</label><input id="regInvite" maxlength="20" required placeholder="请输入邀请码" autocomplete="off"><div class="hint">邀请码：找已注册的朋友要一个，一个邀请码只能注册一次</div></div>
+        <div class="msg error" id="invitePausedNotice" style="display:none;">⚠️ 注册已暂停，暂不接受新注册</div>
+        <button class="btn btn-primary" type="submit" id="regBtn">注册并登录</button>
+        <div class="msg" id="regMsg"></div>
+      </form>
+
+      <form id="setPassForm" style="display:none;" onsubmit="return doSetPassword(event)">
+        <div class="field"><label>昵称</label><input id="setPassNick" maxlength="20" readonly></div>
+        <div class="field"><label>新密码</label><input id="setPassNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
+        <div class="field"><label>确认新密码</label><input id="setPassNew2" type="password" maxlength="50" placeholder="再输入一次" required></div>
+        <button class="btn btn-primary" type="submit" id="setPassBtn">设置密码并登录</button>
+        <div class="msg" id="setPassMsg"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<footer class="footer"><div class="footer-copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
+
+<script src="app.js"></script>
+<script>
+/* 登录/注册切换 */
+// 表单区当前模式（登录/注册），决定标题与副标题文案
+var currentAuthMode = 'login';
+
+function switchTab(mode) {
+  currentAuthMode = mode;
+  document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+  document.getElementById('tabReg').classList.toggle('active', mode === 'reg');
+  document.getElementById('loginForm').style.display = mode === 'login' ? '' : 'none';
+  document.getElementById('regForm').style.display = mode === 'reg' ? '' : 'none';
+  // 标题随模式切换（需求2）：登录↔注册各自展示对应欢迎词与副标题
+  document.getElementById('authTitle').textContent = mode === 'login' ? '👋 欢迎回来' : '👋 欢迎注册';
+  document.getElementById('authSubtitle').textContent = mode === 'login'
+    ? '使用 Qxwk 通行证登录，一处登录，通行各站'
+    : '注册一个通行证账号，一处登录，通行各站';
+}
+
+/* ---------- SSO 回调 ---------- */
+var redirect = new URLSearchParams(location.search).get('redirect'); // 来源站回调目标
+var ssoInfo = null; // /api/sso/info 校验结果；null=无 redirect
+
+function validateRedirect(raw) {
+  try { var u = new URL(raw); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch (e) { return false; }
+}
+
+function buildCallback(redirectStr, data) {
+  var u = new URL(redirectStr);
+  u.searchParams.set('token', data.token);
+  u.searchParams.set('uid', String(data.userId));
+  u.searchParams.set('nick', data.nickname);
+  return u.toString();
+}
+
+function escapeHtml(t) {
+  var d = document.createElement('div');
+  d.textContent = t || '';
+  return d.innerHTML;
+}
+
+function setSsoBanner(html, kind) {
+  var b = document.getElementById('ssoBanner');
+  b.innerHTML = html;
+  b.className = 'sso-banner ' + (kind || 'ok');
+  b.style.display = '';
+}
+
+async function checkSso() {
+  if (!redirect) { ssoInfo = null; return; }
+  if (!validateRedirect(redirect)) {
+    setSsoBanner('⚠️ 来源链接不合法，登录后将在本站继续', 'warn');
+    ssoInfo = { ok: false };
+    return;
+  }
+  try {
+    var info = await api('/sso/info?redirect=' + encodeURIComponent(redirect));
+    if (info.ok) {
+      setSsoBanner('登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>');
+      ssoInfo = info;
+    } else {
+      setSsoBanner('⚠️ ' + escapeHtml(info.reason || '该站点未接入通行证') + '，登录后将在本站继续', 'warn');
+      ssoInfo = { ok: false };
+    }
+  } catch (e) {
+    setSsoBanner('⚠️ 暂时无法校验来源站点，登录后将在本站继续', 'warn');
+    ssoInfo = { ok: false };
+  }
+}
+
+/* 登录/注册成功后的统一结尾：存会话 + 按 SSO 状态跳转 */
+function applySession(data) {
+  saveSession(data);
+  if (ssoInfo && ssoInfo.ok) location.href = buildCallback(redirect, data);
+  else location.href = 'account.html';
+}
+
+/* 已登录自动跳转：本地有 token 且 /api/me 有效 → 直接用当前 token 回来源站（一次登录处处通行） */
+async function autoRedirect() {
+  var token = localStorage.getItem(LS_TOKEN);
+  if (!token) return;
+  try {
+    var me = await api('/me');
+    if (redirect && ssoInfo && ssoInfo.ok) {
+      location.href = buildCallback(redirect, { token: token, userId: me.userId, nickname: me.nickname });
+    } else {
+      location.href = 'account.html';
+    }
+  } catch (e) { /* token 失效：app.js 已清 session，继续展示登录表单 */ }
+}
+
+async function doLogin(e) {
+  e.preventDefault();
+  var msg = document.getElementById('loginMsg');
+  var btn = document.getElementById('loginBtn');
+  msg.className = 'msg error';
+  btn.disabled = true;
+  msg.textContent = '登录中…';
+  try {
+    var data = await api('/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        nickname: document.getElementById('loginNick').value.trim(),
+        password: document.getElementById('loginPass').value,
+        client_id: (ssoInfo && ssoInfo.ok) ? ssoInfo.appId : null,
+      }),
+    });
+    // 账号密码哈希为空：要求设置密码（切换到设密码表单）
+    if (data && data.need_set_password) {
+      showSetPassForm(document.getElementById('loginNick').value.trim());
+      return false;
+    }
+    msg.className = 'msg ok';
+    msg.textContent = '登录成功，正在跳转…';
+    applySession(data);
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  return false;
+}
+
+async function doRegister(e) {
+  e.preventDefault();
+  var msg = document.getElementById('regMsg');
+  var btn = document.getElementById('regBtn');
+  msg.className = 'msg error';
+  if (document.getElementById('regPass').value !== document.getElementById('regPass2').value) {
+    msg.textContent = '两次输入的密码不一致';
+    return false;
+  }
+  btn.disabled = true;
+  msg.textContent = '注册中…';
+  try {
+    var data = await api('/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        nickname: document.getElementById('regNick').value.trim(),
+        password: document.getElementById('regPass').value,
+        invite_code: document.getElementById('regInvite').value.trim(),
+      }),
+    });
+    msg.className = 'msg ok';
+    msg.textContent = '注册成功，正在进入…';
+    applySession(data);
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  return false;
+}
+
+/* 切换到"设置密码"视图（账号密码哈希为空时）：隐藏 tabs + 登录/注册表单，显示设密码表单 */
+function showSetPassForm(nick) {
+  document.querySelector('.tabs').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('regForm').style.display = 'none';
+  document.getElementById('setPassForm').style.display = '';
+  document.getElementById('setPassNick').value = nick || '';
+  document.getElementById('setPassNew').value = '';
+  document.getElementById('setPassNew2').value = '';
+  document.getElementById('authTitle').textContent = '🔑 设置密码';
+  document.getElementById('authSubtitle').textContent = '该账号尚未设置密码，请先设置密码后登录';
+  var btn = document.getElementById('loginBtn'); if (btn) btn.disabled = false;
+  var msg = document.getElementById('setPassMsg');
+  msg.className = 'msg'; msg.textContent = '';
+  document.getElementById('setPassNew').focus();
+}
+
+/* 设置密码（账号哈希为空时首次设置）：成功后等同登录 */
+async function doSetPassword(e) {
+  e.preventDefault();
+  var msg = document.getElementById('setPassMsg');
+  var btn = document.getElementById('setPassBtn');
+  msg.className = 'msg error';
+  var p1 = document.getElementById('setPassNew').value;
+  var p2 = document.getElementById('setPassNew2').value;
+  if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; return false; }
+  btn.disabled = true;
+  msg.textContent = '设置中…';
+  try {
+    var data = await api('/set-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        nickname: document.getElementById('setPassNick').value.trim(),
+        new_password: p1,
+      }),
+    });
+    msg.className = 'msg ok';
+    msg.textContent = '密码设置成功，正在进入…';
+    applySession(data);
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  return false;
+}
+fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
+  if (cfg && cfg.inviteCodeRequired === false) {
+    var field = document.getElementById('inviteField');
+    var input = document.getElementById('regInvite');
+    field.style.display = 'none';
+    input.required = false;
+  }
+  if (cfg && cfg.inviteRegisterEnabled === false) {
+    var notice = document.getElementById('invitePausedNotice');
+    if (notice) notice.style.display = '';
+    var regBtn = document.getElementById('regBtn');
+    if (regBtn) regBtn.disabled = true;
+  }
+}).catch(function () { /* 后端不可达时默认强制邀请码 */ });
+
+/* 初始化顺序：先校验 SSO，再尝试已登录自动跳转 */
+checkSso().then(autoRedirect);
+</script>
+</body>
+</html>

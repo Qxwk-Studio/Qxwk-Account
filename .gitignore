@@ -1,0 +1,13 @@
+# 依赖与本地文件
+node_modules/
+.wrangler/
+.wrangler-config/
+.xdg-config/
+.dev.vars
+
+# wrangler 自动生成的文件
+wrangler.jsonc
+
+# 本地服务器日志
+.wrangler-log.txt/
+.wrangler-logs/

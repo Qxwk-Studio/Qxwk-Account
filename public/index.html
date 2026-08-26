@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="strict-origin">
+<title>Qxwk 通行证</title>
+<meta name="description" content="Qxwk 账号通行证 —— 青翔未阔工作室统一账号中心。请稍候，正在跳转…">
+<link rel="icon" type="image/webp" href="/favicon.webp">
+</head>
+<body>
+<script src="app.js"></script>
+<script>
+/* 根页分流：已登录 → 账号中心；未登录 → 登录页 */
+(function () {
+  var target = getSession() ? 'account.html' : 'login.html';
+  if (window.location.search) {
+    // 保留 SSO redirect 参数（如果存在）
+    var redirect = new URLSearchParams(window.location.search).get('redirect');
+    if (redirect) target = 'login.html?redirect=' + encodeURIComponent(redirect);
+  }
+  window.location.replace(target);
+})();
+</script>
+</body>
+</html>

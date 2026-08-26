@@ -1,0 +1,12 @@
+{
+  "name": "qxwk-account",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Qxwk 账号通行证 —— 青翔未阔工作室统一账号中心",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply qxwk-account --local",
+    "migrate:remote": "wrangler d1 migrations apply qxwk-account --remote"
+  }
+}

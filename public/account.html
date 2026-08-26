@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="strict-origin">
+<title>账号中心 - 青翔未阔工作室</title>
+<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息与最近登录来源。">
+<link rel="icon" type="image/webp" href="/favicon.webp">
+<style>
+  /* ========= Reset & Base ========= */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-light: #eff6ff;
+    --secondary: #0d9488;
+    --surface: #ffffff;
+    --bg: #f8fafc;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --border: #e2e8f0;
+    --navbar-bg: rgba(255, 255, 255, 0.8);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    --container: 1100px;
+    --nav-height: 64px;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ========= Navbar ========= */
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    height: var(--nav-height);
+    background: var(--navbar-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+  }
+  .navbar-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    gap: 12px;
+  }
+  .navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1.15rem;
+    letter-spacing: 0.3px;
+    transition: opacity var(--transition);
+    flex-shrink: 0;
+  }
+  .navbar-brand:hover { opacity: 0.85; }
+  .brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.25);
+  }
+  .brand-text { line-height: 1.25; }
+  .brand-text b { display: block; font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
+  .brand-text span { font-size: 11px; color: var(--text-tertiary); }
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    background: rgba(37, 99, 235, 0.15);
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 40px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(147, 197, 253, 0.35);
+    transition: all var(--transition);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .back-link:hover {
+    background: rgba(37, 99, 235, 0.3);
+    border-color: rgba(147, 197, 253, 0.6);
+    transform: scale(1.02);
+  }
+
+  /* ========= 未登录：左右分屏（同 login 页风格） ========= */
+  #authView {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 60% 40%;
+    overflow: hidden;
+  }
+  .auth-left {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    background: #e2e2ec;
+  }
+  .setup-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+  .auth-right {
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+  }
+  .auth-form {
+    width: 100%;
+    max-width: 380px;
+    margin: 0;
+  }
+  .auth-title {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .auth-subtitle {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 28px;
+  }
+
+  /* ========= 已登录：主内容区 ========= */
+  .main { flex: 1; padding: 36px 24px 60px; }
+  .container { max-width: var(--container); margin: 0 auto; }
+  .page-header { display: flex; align-items: center; margin-bottom: 28px; }
+  .page-header h1 { font-size: clamp(1.4rem, 3vw, 1.8rem); font-weight: 700; color: var(--text-primary); }
+
+  /* ========= Card ========= */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card h3 { font-size: 1.02rem; font-weight: 600; margin-bottom: 16px; }
+
+  /* 个人中心双列布局 */
+  .personal-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .personal-col { display: flex; flex-direction: column; gap: 20px; }
+  .personal-col .card { margin-bottom: 0; }
+
+  /* 主卡：个人资料 */
+  #profileCard {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--user-color, #2563eb) 15%, #ffffff), var(--surface) 80%);
+    border-color: color-mix(in srgb, var(--user-color, #2563eb) 22%, #e2e8f0);
+    padding: 28px;
+  }
+  .profile-head { display: flex; align-items: flex-start; gap: 18px; }
+  .profile-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
+    flex-shrink: 0;
+    overflow: hidden;
+    background: var(--bg);
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(0, 0, 0, 0.08);
+    /* 文字头像回退样式：img 由下方规则撑满，不受影响 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+  .profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .profile-info { flex: 1; min-width: 0; }
+  .profile-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 6px; }
+  .profile-meta { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 4px; }
+  .user-uid { font-family: 'Consolas', 'Courier New', monospace; font-size: 0.86rem; color: var(--text-tertiary); }
+  .user-regtime { font-size: 0.78rem; color: var(--text-tertiary); }
+  .profile-color {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .user-color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); flex-shrink: 0; }
+
+  /* 账户信息行 */
+  .info-row { display: flex; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .k { width: 130px; flex-shrink: 0; color: var(--text-secondary); font-size: 0.86rem; }
+  .info-row .v { flex: 1; font-weight: 500; }
+  .info-row .v.mono { font-family: 'Consolas', 'Courier New', monospace; }
+
+  /* 邀请码栏 */
+  .invite-code-row { display: flex; align-items: center; gap: 10px; }
+  .invite-code {
+    flex: 1;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--primary);
+    background: var(--primary-light);
+    border: 1px dashed rgba(37, 99, 235, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* 最近登录来源 */
+  .login-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  .login-item:last-child { border-bottom: none; }
+  .login-item .app { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+  .login-item .app .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+  .login-item .app.direct .dot { background: var(--text-tertiary); }
+  .login-item .time { color: var(--text-tertiary); font-size: 0.8rem; }
+  .empty { text-align: center; color: var(--text-tertiary); font-size: 0.84rem; padding: 14px 0; }
+
+  /* ========= Profile Form（修改个人资料） ========= */
+  label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+  input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--surface);
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+  }
+  input[disabled] {
+    background: var(--bg);
+    color: var(--text-tertiary);
+    cursor: not-allowed;
+    border-color: var(--border);
+  }
+  .field { margin-bottom: 16px; }
+  .hint { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 4px; }
+
+  /* ========= 修改个人资料：不可折叠 ========= */
+  .card-profile-edit > .profile-edit-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0 16px;
+    font-size: 1.02rem;
+    font-weight: 600;
+  }
+  .profile-edit-body {
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ========= 折叠卡（重置密码等，默认收起） ========= */
+  .card-collapse > .collapse-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 0;
+  }
+  .card-collapse > .collapse-title h3 { margin: 0; }
+  .card-collapse .collapse-title .chevron { color: var(--text-tertiary); transition: transform var(--transition); }
+  .card-collapse.open .collapse-title .chevron { transform: rotate(180deg); }
+  .card-collapse > .collapse-body {
+    display: none;
+    padding-top: 16px;
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .card-collapse.open > .collapse-body { display: block; }
+
+  /* ========= 专属颜色：弹出调色板 ========= */
+  .color-field { position: relative; }
+  .color-trigger {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  .color-trigger:hover { border-color: var(--primary); }
+  .color-trigger:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+  .color-trigger .color-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px var(--border);
+    flex-shrink: 0;
+  }
+  .color-trigger .color-trigger-text { flex: 1; text-align: left; color: var(--text-secondary); }
+  .color-trigger .chevron.small { color: var(--text-tertiary); transition: transform var(--transition); }
+  .color-trigger.open .chevron.small { transform: rotate(180deg); }
+  .color-trigger:focus { outline: none; }
+
+  /* 弹出浮层 */
+  .color-menu {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 30;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 14px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .color-field.open .color-menu { display: block; }
+  .color-menu-title {
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+    font-weight: 500;
+  }
+  .color-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 8px;
+  }
+  .swatch {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    position: relative;
+    transition: transform var(--transition), border-color var(--transition), opacity var(--transition);
+    box-shadow: var(--shadow-sm);
+    touch-action: manipulation;
+  }
+  .swatch:hover { transform: scale(1.12); }
+  .swatch.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px var(--primary), 0 3px 10px rgba(0, 0, 0, 0.18);
+    transform: scale(1.1);
+  }
+  .swatch.active::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  /* ========= Buttons ========= */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+    border-radius: 40px;
+    padding: 11px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: inherit;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    width: 100%;
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-hover), #0f766e);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: var(--bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--border); color: var(--text-primary); }
+  .btn-danger {
+    background: var(--surface);
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+  .btn-danger:hover { background: #fef2f2; border-color: #fca5a5; }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 6px; }
+  .msg { font-size: 0.84rem; margin-top: 10px; }
+
+  /* ========= 退出登录：大卡片 ========= */
+  .card-logout {
+    text-align: center;
+    background:
+      radial-gradient(120% 100% at 50% 0%, rgba(220, 38, 38, 0.08) 0%, rgba(220, 38, 38, 0) 60%),
+      var(--surface);
+    border: 1px solid #fecaca;
+    border-radius: var(--radius-md);
+    padding: 32px 26px;
+  }
+  .card-logout h3 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+  .card-logout .logout-tip {
+    text-align: center;
+    padding: 0 0 20px;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .btn-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 11px 18px;
+    border: none;
+    border-radius: 40px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    transition: all var(--transition);
+  }
+  .btn-logout:hover {
+    background: linear-gradient(135deg, #f87171, #ef4444);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-logout:active { transform: translateY(0) scale(0.98); }
+  .btn-logout svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .msg.error { color: #dc2626; }
+  .msg.ok { color: #16a34a; }
+
+  /* ========= Footer ========= */
+  .footer {
+    background: #0f172a;
+    text-align: center;
+    padding: 28px 24px;
+    color: var(--text-tertiary);
+    font-size: 0.82rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .footer-copy { opacity: 0.6; }
+
+  /* ========= Responsive ========= */
+  @media (max-width: 768px) {
+    .personal-layout { grid-template-columns: 1fr; }
+    #authView { grid-template-columns: 1fr; grid-template-rows: 28vh 1fr; }
+    .auth-left { height: 100%; }
+    .auth-right { align-items: flex-start; padding: 40px 16px; }
+    .auth-form { max-width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .navbar-inner { padding: 0 16px; }
+    .main { padding: 24px 16px 40px; }
+    .card { padding: 18px; }
+    .profile-head { gap: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+<meta name="color-scheme" content="light dark">
+<script>
+/* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+(function () {
+  var KEY = 'theme';
+  var root = document.documentElement;
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  function system() { return mq.matches ? 'dark' : 'light'; }
+  function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+  function apply(t) { root.setAttribute('data-theme', t); }
+  function current() { return stored() || system(); }
+  apply(current());
+  function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
+  // 按钮轮询绑定（不依赖 DOMContentLoaded，避免被外部脚本阻塞导致按钮长时间无效）
+  (function tryBind() {
+    var btn = document.getElementById('themeToggle');
+    if (btn) btn.addEventListener('click', toggle);
+    else setTimeout(tryBind, 50);
+  })();
+  if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+  else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+  window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+})();
+</script>
+<style>
+  /* ===== 黑夜模式：主题切换按钮 ===== */
+  .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
+  .theme-toggle:hover { background:var(--primary-subtle); color:var(--primary); }
+  .theme-toggle svg { width:22px; height:22px; }
+  .theme-toggle .icon-sun { display:none; }
+  :root[data-theme="dark"] .theme-toggle .icon-sun { display:block; }
+  :root[data-theme="dark"] .theme-toggle .icon-moon { display:none; }
+
+  /* ===== 黑夜模式：深色变量 ===== */
+  :root { color-scheme: light; --primary-subtle: rgba(37,99,235,0.08); }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --primary-light: rgba(59,130,246,0.16);
+    --primary-subtle: rgba(59,130,246,0.16);
+    --surface:#1e293b; --bg:#0f172a;
+    --text-primary:#e2e8f0; --text-secondary:#94a3b8; --text-tertiary:#64748b;
+    --border:#334155; --navbar-bg:rgba(15,23,42,0.8);
+    --shadow-sm:0 1px 3px rgba(0,0,0,0.4); --shadow-md:0 4px 16px rgba(0,0,0,0.5); --shadow-lg:0 12px 40px rgba(0,0,0,0.6);
+  }
+  :root[data-theme="dark"] .footer { background:#111827; }
+  :root[data-theme="dark"] .back-link { background:rgba(59,130,246,0.16); border-color:rgba(96,165,250,0.35); }
+  :root[data-theme="dark"] .back-link:hover { background:rgba(59,130,246,0.30); border-color:rgba(96,165,250,0.60); }
+
+  /* ===== 黑夜模式：页面元素覆盖 ===== */
+  :root[data-theme="dark"] .auth-right { background: var(--surface); }
+  :root[data-theme="dark"] .auth-left { background: #0f172a; }
+  :root[data-theme="dark"] #profileCard {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--user-color, #2563eb) 18%, #0f172a), var(--surface) 80%);
+    border-color: color-mix(in srgb, var(--user-color, #2563eb) 28%, #334155);
+  }
+  :root[data-theme="dark"] .user-color-dot { border-color: #0f172a; }
+  :root[data-theme="dark"] .btn-danger { background:#1e293b; border-color: rgba(239,68,68,0.4); }
+  :root[data-theme="dark"] .btn-danger:hover { background: rgba(239,68,68,0.12); }
+
+  /* ===== 黑夜模式：修改资料表单 + 色板 + 退出卡 ===== */
+  :root[data-theme="dark"] input { background: var(--surface); color: var(--text-primary); }
+  :root[data-theme="dark"] input[disabled] { background: rgba(15,23,42,0.5); color: var(--text-tertiary); }
+  :root[data-theme="dark"] .color-trigger { background: var(--surface); }
+  :root[data-theme="dark"] .color-trigger .color-dot { border-color: #0f172a; }
+  :root[data-theme="dark"] .color-menu { background: var(--surface); }
+  :root[data-theme="dark"] .swatch.active { border-color: #0f172a; box-shadow: 0 0 0 2px var(--primary), 0 3px 12px rgba(0,0,0,0.5); }
+  :root[data-theme="dark"] .card-logout {
+    background:
+      radial-gradient(120% 100% at 50% 0%, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0) 60%),
+      var(--surface);
+    border-color: rgba(239,68,68,0.35);
+  }
+  :root[data-theme="dark"] .card-logout h3 { color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <div class="navbar-inner">
+    <a href="https://home.qxwkstudio.top/" class="navbar-brand">
+      <img class="brand-logo" src="/favicon.webp" alt="Qxwk 通行证">
+      <span class="brand-text"><b>Qxwk 通行证</b><span>一处登录，通行各站</span></span>
+    </a>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <a href="https://home.qxwkstudio.top/" class="back-link">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+        返回主页
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- 未登录 -->
+<div id="authView">
+  <div class="auth-left">
+    <iframe src="setup.html" class="setup-frame" title="欢迎" loading="lazy"></iframe>
+  </div>
+  <div class="auth-right">
+    <div class="auth-form">
+      <h2 class="auth-title">你还没有登录</h2>
+      <p class="auth-subtitle">登录后才能查看你的通行证账号信息</p>
+      <a href="login.html" class="btn btn-primary">去登录 / 注册</a>
+      <div class="msg" id="authMsg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 已登录 -->
+<div class="main" id="mainContent" style="display:none;">
+  <div class="container">
+    <div class="page-header">
+      <h1>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        账号中心
+      </h1>
+    </div>
+
+    <div class="personal-layout">
+      <div class="personal-col">
+        <!-- 主卡：个人资料 -->
+        <div class="card" id="profileCard">
+          <div class="profile-head">
+            <div class="profile-avatar" id="profileAvatar"></div>
+            <div class="profile-info">
+              <h2 class="profile-name" id="welcomeText"></h2>
+              <div class="profile-meta">
+                <span class="user-uid" id="userUid"></span>
+              </div>
+              <div class="user-regtime" id="userRegTime"></div>
+            </div>
+          </div>
+          <div class="profile-color">
+            <span class="user-color-dot" id="userColor" style="background:#ccc;"></span>
+            <span id="userColorText">专属颜色</span>
+          </div>
+        </div>
+
+        <!-- 修改个人资料：不可折叠 -->
+        <div class="card card-profile-edit" id="profileEditCard">
+          <div class="profile-edit-title">✏️ 修改个人资料</div>
+          <div class="profile-edit-body">
+            <div class="field">
+              <label>昵称</label>
+              <input id="accNickname" type="text" maxlength="20" placeholder="1-20 个字符">
+              <div class="hint">昵称是你在各站展示的名字，修改后所有接入站点都会同步</div>
+            </div>
+            <div class="field color-field">
+              <label>专属颜色</label>
+              <button type="button" class="color-trigger" id="colorTrigger" onclick="toggleColorMenu(event)">
+                <span class="color-dot" id="colorPreviewDot" style="background:#ccc;"></span>
+                <span class="color-trigger-text" id="colorPreviewLabel">点击选择专属颜色</span>
+                <svg class="chevron small" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="hint">点击弹出调色板，选择你的专属颜色</div>
+              <div class="color-menu" id="colorMenu">
+                <div class="color-menu-title">选择专属颜色</div>
+                <div class="color-menu-grid" id="colorMenuGrid"></div>
+              </div>
+            </div>
+            <div class="field">
+              <label>QQ邮箱</label>
+              <input id="accEmail" type="email" placeholder="选填，如 12345@qq.com">
+              <div class="hint">仅支持 QQ 邮箱（@qq.com），用于获取你的头像</div>
+            </div>
+            <button class="btn btn-primary" id="saveProfileBtn" onclick="saveProfile()">保存修改</button>
+            <div class="msg" id="profileMsg"></div>
+          </div>
+        </div>
+
+        <!-- 重置密码（折叠，默认收起） -->
+        <div class="card card-collapse" id="pwdCard">
+          <div class="collapse-title" onclick="toggleCard('pwdCard')" role="button" tabindex="0">
+            <h3>🔒 重置密码</h3>
+            <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="collapse-body">
+            <div class="field">
+              <label>新密码</label>
+              <input id="newPassword" type="password" placeholder="4-50 个字符" maxlength="50" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label>确认新密码</label>
+              <input id="newPassword2" type="password" placeholder="再次输入新密码" maxlength="50" autocomplete="new-password">
+            </div>
+            <button class="btn btn-primary" id="changePwdBtn" onclick="changePassword()">修改密码</button>
+            <div class="msg" id="pwdMsg"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="personal-col">
+        <!-- 邀请好友 -->
+        <div class="card" id="inviteCodeCard" style="display:none;">
+          <h3>🎫 邀请好友</h3>
+          <div class="invite-code-row">
+            <code id="inviteCodeText" class="invite-code">点击下方按钮获取</code>
+            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" onclick="copyInviteCode()" disabled>复制</button>
+          </div>
+          <div class="hint" id="inviteHint" style="margin:8px 0 0;">分享给朋友注册用，一个码只能注册一次</div>
+          <button class="btn btn-primary" id="generateInviteBtn" onclick="loadInviteCode()" style="margin-top:14px;">生成邀请码</button>
+        </div>
+
+        <!-- 最近登录来源 -->
+        <div class="card">
+          <h3>🕘 最近登录来源</h3>
+          <div id="loginLogList"><div class="empty">正在加载…</div></div>
+        </div>
+
+        <!-- 退出登录：大卡片 -->
+        <div class="card-logout">
+          <h3>退出登录</h3>
+          <div class="logout-tip">
+            退出后在本站及其他已接入的站点都将需要重新登录
+          </div>
+          <button class="btn-logout" onclick="logout()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            退出登录
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="footer"><div class="footer-copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
+
+<script src="app.js"></script>
+<script>
+function enterUserView(email) {
+  document.getElementById('authView').style.display = 'none';
+  document.getElementById('mainContent').style.display = '';
+  var s = getSession();
+  // 专属颜色驱动主卡渐变
+  if (s && s.color) document.documentElement.style.setProperty('--user-color', s.color);
+  document.getElementById('welcomeText').textContent = (s ? s.nickname : '') + '，欢迎回来 👋';
+  document.getElementById('userUid').textContent = 'UID：' + (s ? s.userId : '');
+  // 大头像：优先邮箱 SHA256 → WeAvatar 头像，无邮箱/加载失败回退昵称首字 + 专属颜色
+  var avatar = document.getElementById('profileAvatar');
+  if (avatar) setAvatar(avatar, email, s ? s.nickname : '', s ? s.color : '#2563eb');
+  var colorDot = document.getElementById('userColor');
+  if (colorDot && s && s.color) {
+    colorDot.style.background = s.color;
+    colorDot.style.boxShadow = '0 0 0 3px ' + s.color + '40';
+  }
+  document.getElementById('userColorText').textContent = '专属颜色';
+  var regEl = document.getElementById('userRegTime');
+  if (regEl && window._regTime) regEl.textContent = '注册于 ' + window._regTime;
+}
+
+/* MD5 纯 JS 实现（算法同 blueimp-md5 v1.1.0，MIT 许可）
+   浏览器无原生 MD5，且不依赖 Web Crypto（非 HTTPS 页面也能算） */
+function md5(string) {
+  var safeAdd = function (x, y) {
+    var lsw = (x & 0xffff) + (y & 0xffff),
+        msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+    return (msw << 16) | (lsw & 0xffff);
+  };
+  var bitRotateLeft = function (num, cnt) {
+    return (num << cnt) | (num >>> (32 - cnt));
+  };
+  var md5cmn = function (q, a, b, x, s, t) {
+    return safeAdd(bitRotateLeft(safeAdd(safeAdd(a, q), safeAdd(x, t)), s), b);
+  };
+  var md5ff = function (a, b, c, d, x, s, t) {
+    return md5cmn((b & c) | (~b & d), a, b, x, s, t);
+  };
+  var md5gg = function (a, b, c, d, x, s, t) {
+    return md5cmn((b & d) | (c & ~d), a, b, x, s, t);
+  };
+  var md5hh = function (a, b, c, d, x, s, t) {
+    return md5cmn(b ^ c ^ d, a, b, x, s, t);
+  };
+  var md5ii = function (a, b, c, d, x, s, t) {
+    return md5cmn(c ^ (b | ~d), a, b, x, s, t);
+  };
+  var binlMD5 = function (x, len) {
+    x[len >> 5] |= 0x80 << (len % 32);
+    x[(((len + 64) >>> 9) << 4) + 14] = len;
+    var i, olda, oldb, oldc, oldd,
+        a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
+    for (i = 0; i < x.length; i += 16) {
+      olda = a; oldb = b; oldc = c; oldd = d;
+      a = md5ff(a, b, c, d, x[i], 7, -680876936);
+      d = md5ff(d, a, b, c, x[i + 1], 12, -389564586);
+      c = md5ff(c, d, a, b, x[i + 2], 17, 606105819);
+      b = md5ff(b, c, d, a, x[i + 3], 22, -1044525330);
+      a = md5ff(a, b, c, d, x[i + 4], 7, -176418897);
+      d = md5ff(d, a, b, c, x[i + 5], 12, 1200080426);
+      c = md5ff(c, d, a, b, x[i + 6], 17, -1473231341);
+      b = md5ff(b, c, d, a, x[i + 7], 22, -45705983);
+      a = md5ff(a, b, c, d, x[i + 8], 7, 1770035416);
+      d = md5ff(d, a, b, c, x[i + 9], 12, -1958414417);
+      c = md5ff(c, d, a, b, x[i + 10], 17, -42063);
+      b = md5ff(b, c, d, a, x[i + 11], 22, -1990404162);
+      a = md5ff(a, b, c, d, x[i + 12], 7, 1804603682);
+      d = md5ff(d, a, b, c, x[i + 13], 12, -40341101);
+      c = md5ff(c, d, a, b, x[i + 14], 17, -1502002290);
+      b = md5ff(b, c, d, a, x[i + 15], 22, 1236535329);
+      a = md5gg(a, b, c, d, x[i + 1], 5, -165796510);
+      d = md5gg(d, a, b, c, x[i + 6], 9, -1069501632);
+      c = md5gg(c, d, a, b, x[i + 11], 14, 643717713);
+      b = md5gg(b, c, d, a, x[i], 20, -373897302);
+      a = md5gg(a, b, c, d, x[i + 5], 5, -701558691);
+      d = md5gg(d, a, b, c, x[i + 10], 9, 38016083);
+      c = md5gg(c, d, a, b, x[i + 15], 14, -660478335);
+      b = md5gg(b, c, d, a, x[i + 4], 20, -405537848);
+      a = md5gg(a, b, c, d, x[i + 9], 5, 568446438);
+      d = md5gg(d, a, b, c, x[i + 14], 9, -1019803690);
+      c = md5gg(c, d, a, b, x[i + 3], 14, -187363961);
+      b = md5gg(b, c, d, a, x[i + 8], 20, 1163531501);
+      a = md5gg(a, b, c, d, x[i + 13], 5, -1444681467);
+      d = md5gg(d, a, b, c, x[i + 2], 9, -51403784);
+      c = md5gg(c, d, a, b, x[i + 7], 14, 1735328473);
+      b = md5gg(b, c, d, a, x[i + 12], 20, -1926607734);
+      a = md5hh(a, b, c, d, x[i + 5], 4, -378558);
+      d = md5hh(d, a, b, c, x[i + 8], 11, -2022574463);
+      c = md5hh(c, d, a, b, x[i + 11], 16, 1839030562);
+      b = md5hh(b, c, d, a, x[i + 14], 23, -35309556);
+      a = md5hh(a, b, c, d, x[i + 1], 4, -1530992060);
+      d = md5hh(d, a, b, c, x[i + 4], 11, 1272893353);
+      c = md5hh(c, d, a, b, x[i + 7], 16, -155497632);
+      b = md5hh(b, c, d, a, x[i + 10], 23, -1094730640);
+      a = md5hh(a, b, c, d, x[i + 13], 4, 681279174);
+      d = md5hh(d, a, b, c, x[i], 11, -358537222);
+      c = md5hh(c, d, a, b, x[i + 3], 16, -722521979);
+      b = md5hh(b, c, d, a, x[i + 6], 23, 76029189);
+      a = md5hh(a, b, c, d, x[i + 9], 4, -640364487);
+      d = md5hh(d, a, b, c, x[i + 12], 11, -421815835);
+      c = md5hh(c, d, a, b, x[i + 15], 16, 530742520);
+      b = md5hh(b, c, d, a, x[i + 2], 23, -995338651);
+      a = md5ii(a, b, c, d, x[i], 6, -198630844);
+      d = md5ii(d, a, b, c, x[i + 7], 10, 1126891415);
+      c = md5ii(c, d, a, b, x[i + 14], 15, -1416354905);
+      b = md5ii(b, c, d, a, x[i + 5], 21, -57434055);
+      a = md5ii(a, b, c, d, x[i + 12], 6, 1700485571);
+      d = md5ii(d, a, b, c, x[i + 3], 10, -1894986606);
+      c = md5ii(c, d, a, b, x[i + 10], 15, -1051523);
+      b = md5ii(b, c, d, a, x[i + 1], 21, -2054922799);
+      a = md5ii(a, b, c, d, x[i + 8], 6, 1873313359);
+      d = md5ii(d, a, b, c, x[i + 15], 10, -30611744);
+      c = md5ii(c, d, a, b, x[i + 6], 15, -1560198380);
+      b = md5ii(b, c, d, a, x[i + 13], 21, 1309151649);
+      a = md5ii(a, b, c, d, x[i + 4], 6, -145523070);
+      d = md5ii(d, a, b, c, x[i + 11], 10, -1120210379);
+      c = md5ii(c, d, a, b, x[i + 2], 15, 718787259);
+      b = md5ii(b, c, d, a, x[i + 9], 21, -343485551);
+      a = safeAdd(a, olda); b = safeAdd(b, oldb); c = safeAdd(c, oldc); d = safeAdd(d, oldd);
+    }
+    return [a, b, c, d];
+  };
+  var binl2hex = function (binarray) {
+    var hexTab = '0123456789abcdef', str = '', i;
+    for (i = 0; i < binarray.length * 4; i++) {
+      str += hexTab.charAt((binarray[i >> 2] >> ((i % 4) * 8 + 4)) & 0xf) +
+             hexTab.charAt((binarray[i >> 2] >> ((i % 4) * 8)) & 0xf);
+    }
+    return str;
+  };
+  var utf8Encode = function (string) {
+    var utftext = '', n;
+    for (n = 0; n < string.length; n++) {
+      var c = string.charCodeAt(n);
+      if (c < 128) { utftext += String.fromCharCode(c); }
+      else if (c > 127 && c < 2048) {
+        utftext += String.fromCharCode((c >> 6) | 192);
+        utftext += String.fromCharCode((c & 63) | 128);
+      } else {
+        utftext += String.fromCharCode((c >> 12) | 224);
+        utftext += String.fromCharCode(((c >> 6) & 63) | 128);
+        utftext += String.fromCharCode((c & 63) | 128);
+      }
+    }
+    return utftext;
+  };
+  var i, blocks = [], src = utf8Encode(string), len = src.length;
+  for (i = 0; i < len; i++) {
+    blocks[i >> 2] |= (src.charCodeAt(i) & 0xff) << ((i % 4) * 8);
+  }
+  return binl2hex(binlMD5(blocks, len * 8));
+}
+
+// 邮箱 → MD5（小写，trim）→ WeAvatar URL https://weavatar.com/avatar/HASH?s=400
+// 无邮箱、未绑定头像（d=404）或图片加载失败时，回退为昵称首字 + 专属颜色（原实现）
+function setAvatar(el, email, nickname, color) {
+  function fallback() {
+    el.textContent = (nickname || '?').charAt(0).toUpperCase();
+    el.style.background = color || 'var(--primary)';
+    el.style.boxShadow = '0 6px 20px ' + (color || '#2563eb') + '55';
+  }
+  if (!email) { fallback(); return; }
+  var hash = md5(email.trim().toLowerCase());
+  var img = document.createElement('img');
+  img.src = 'https://weavatar.com/avatar/' + hash + '?s=400&d=404';
+  img.alt = (nickname || email) + ' 的头像';
+  img.referrerPolicy = 'no-referrer';
+  img.onerror = fallback;
+  el.textContent = '';
+  el.style.background = 'var(--bg)';   // 占位底色（图片加载中/透明时）
+  el.style.boxShadow = '0 6px 20px ' + (color || '#2563eb') + '55';
+  el.appendChild(img);
+}
+
+// 60 种 Material 调色板（与 src/lib.js USER_COLORS 一致）
+const USER_COLORS = [
+  '#dc2626', '#ef4444', '#f87171', '#ea580c', '#f97316', '#b45309', '#fb923c', '#fdba74', '#d97706', '#f59e0b',
+  '#fbbf24', '#eab308', '#fcd34d', '#facc15', '#fde047', '#d9f99d', '#a3e635', '#84cc16', '#65a30d', '#86efac',
+  '#4ade80', '#22c55e', '#16a34a', '#6ee7b7', '#34d399', '#10b981', '#99f6e4', '#2dd4bf', '#14b8a6', '#a5f3fc',
+  '#22d3ee', '#06b6d4', '#0891b2', '#38bdf8', '#0ea5e9', '#bae6fd', '#93c5fd', '#60a5fa', '#3b82f6', '#2563eb',
+  '#818cf8', '#6366f1', '#4f46e5', '#a78bfa', '#8b5cf6', '#7c3aed', '#d8b4fe', '#c084fc', '#a855f7', '#f0abfc',
+  '#e879f9', '#d946ef', '#f9a8d4', '#f472b6', '#ec4899', '#db2777', '#be185d', '#f43f5e', '#fb7185', '#fda4af',
+];
+
+// 当前选中的颜色（保存按钮提交用）；null = 尚未在色板点选
+let selectedColor = null;
+
+// 渲染色板浮层：current 为已有颜色，对其高亮 .active
+function renderColorPicker(current) {
+  const grid = document.getElementById('colorMenuGrid');
+  selectedColor = current || null;
+  grid.innerHTML = USER_COLORS.map(function (hex) {
+    return '<div class="swatch' + (hex === current ? ' active' : '') + '" role="button" tabindex="0" style="background:' + hex + '" data-color="' + hex + '" onclick="pickColor(\'' + hex + '\')"></div>';
+  }).join('');
+  syncColorTrigger(current);
+}
+
+// 同步颜色触发器的圆点与文案（仅修改资料表单内的局部预览，不影响上方展示）
+function syncColorTrigger(hex) {
+  const dot = document.getElementById('colorPreviewDot');
+  const label = document.getElementById('colorPreviewLabel');
+  if (hex && dot) dot.style.background = hex;
+  if (label) label.textContent = hex ? hex.toUpperCase() : '点击选择专属颜色';
+}
+
+// 点选色块：仅记录选中值 + 更新色板高亮 / 触发器局部预览
+// 上方主卡渐变 / 大头像 / 右上色点留待「保存修改」成功后才更新
+function pickColor(hex) {
+  selectedColor = hex;
+  document.querySelectorAll('#colorMenuGrid .swatch').forEach(function (el) {
+    el.classList.toggle('active', el.dataset.color === hex);
+  });
+  syncColorTrigger(hex);
+  // 点选后收起浮层
+  toggleColorMenu(null, true);
+}
+
+// 颜色浮层展开/收起：openForce 为 true 时强制关闭
+function toggleColorMenu(event, openForce) {
+  const field = document.querySelector('.color-field');
+  const trigger = document.getElementById('colorTrigger');
+  const willOpen = openForce === true ? false : (openForce === false ? true : !field.classList.contains('open'));
+  field.classList.toggle('open', willOpen);
+  trigger.classList.toggle('open', willOpen);
+  if (event) event.stopPropagation();
+}
+
+// 更新主卡渐变 / 大头像 / 右上色点
+function updateColorUI(hex) {
+  if (!hex) return;
+  const avatar = document.getElementById('profileAvatar');
+  if (avatar) {
+    avatar.style.background = hex;
+    avatar.style.boxShadow = '0 6px 20px ' + hex + '55';
+  }
+  const dot = document.getElementById('userColor');
+  if (dot) {
+    dot.style.background = hex;
+    dot.style.boxShadow = '0 0 0 3px ' + hex + '40';
+  }
+}
+
+
+// 折叠卡 / 颜色浮层：点击外部关闭
+document.addEventListener('click', function (e) {
+  const field = document.querySelector('.color-field');
+  if (field && !field.contains(e.target)) {
+    field.classList.remove('open');
+    const t = document.getElementById('colorTrigger');
+    if (t) t.classList.remove('open');
+  }
+});
+
+// 填充修改资料表单（来自 /api/me）
+async function loadProfileForm() {
+  const data = await api('/me');
+  document.getElementById('accNickname').value = data.nickname || '';
+  document.getElementById('accEmail').value = data.email || '';
+  renderColorPicker(data.color);
+  syncColorTrigger(data.color);
+  // 用服务端的最新颜色驱动主卡渐变（仅在初始化时设置，选色阶段不更新）
+  if (data.color) document.documentElement.style.setProperty('--user-color', data.color);
+}
+
+// 保存修改：昵称 + 颜色 + 邮箱 → PUT /api/profile
+async function saveProfile() {
+  const msg = document.getElementById('profileMsg');
+  const btn = document.getElementById('saveProfileBtn');
+  const nickname = document.getElementById('accNickname').value.trim();
+  const email = document.getElementById('accEmail').value.trim();
+  msg.className = 'msg error';
+  // 昵称校验：1-20 字符
+  if (!nickname || nickname.length > 20) {
+    msg.textContent = '昵称需为 1-20 个字符';
+    return;
+  }
+  // 非空时必须为 QQ 邮箱（@qq.com）
+  if (email && !/^[a-zA-Z0-9._-]+@qq\.com$/i.test(email)) {
+    msg.textContent = '仅支持 QQ 邮箱（@qq.com）';
+    return;
+  }
+  btn.disabled = true;
+  msg.textContent = '保存中…';
+  try {
+    // 始终提交昵称/邮箱（含空串→后端清空邮箱）；颜色只提交当前选中值
+    const body = { nickname: nickname, color: selectedColor || undefined, email: email };
+    const data = await api('/profile', { method: 'PUT', body: JSON.stringify(body) });
+    // 更新本地会话里的 nickname/color，供刷新后保持
+    const s = getSession();
+    if (s) {
+      s.nickname = data.nickname;
+      s.color = data.color;
+      localStorage.setItem(LS_USER, JSON.stringify(s));
+    }
+    // 同步颜色对外展示（主卡渐变 / 大头像 / 右上色点 / 触发器）
+    document.documentElement.style.setProperty('--user-color', data.color);
+    updateColorUI(data.color);
+    syncColorTrigger(data.color);
+    document.getElementById('userColorText').textContent = '专属颜色';
+    // 昵称同步：欢迎语 + 头像回退首字
+    document.getElementById('welcomeText').textContent = data.nickname + '，欢迎回来 👋';
+    // 邮箱/颜色/昵称可能已变更：同步刷新 WeAvatar 头像（无邮箱自动回退首字）
+    setAvatar(document.getElementById('profileAvatar'), data.email, data.nickname, data.color);
+    msg.className = 'msg ok';
+    msg.textContent = '资料已更新 ✔';
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// 点击"生成邀请码"：有未使用码直接显示，无则生成（一码制，防止生成过多）
+async function loadInviteCode() {
+  const codeEl = document.getElementById('inviteCodeText');
+  const copyBtn = document.getElementById('copyInviteBtn');
+  const hintEl = document.getElementById('inviteHint');
+  if (!codeEl) return;
+  codeEl.textContent = '加载中…';
+  if (copyBtn) copyBtn.disabled = true;
+  try {
+    const data = await api('/invite-code');
+    if (data && data.paused) {
+      codeEl.textContent = '邀请码生成已暂停';
+      if (hintEl) hintEl.textContent = '管理员已暂停邀请码生成，暂无法获取邀请码';
+    } else if (data && data.code) {
+      codeEl.textContent = data.code;
+      if (copyBtn) copyBtn.disabled = false;
+      if (hintEl) hintEl.textContent = '分享给朋友注册用，一个码只能注册一次';
+    } else {
+      codeEl.textContent = '暂无可用邀请码';
+      if (hintEl) hintEl.textContent = '点击「生成邀请码」创建一个';
+    }
+  } catch (err) {
+    codeEl.textContent = '获取失败';
+  }
+}
+
+// 复制邀请码
+function copyInviteCode() {
+  const codeEl = document.getElementById('inviteCodeText');
+  const text = codeEl.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyInviteBtn');
+    const old = btn.textContent;
+    btn.textContent = '已复制 ✅';
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  }).catch(() => alert('复制失败，请手动复制'));
+}
+
+// 折叠卡：点击标题展开/收起
+function toggleCard(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+// 修改密码：新密码 → PUT /api/password（凭登录态直接改）
+async function changePassword() {
+  const msg = document.getElementById('pwdMsg');
+  const btn = document.getElementById('changePwdBtn');
+  const newP = document.getElementById('newPassword').value;
+  const newP2 = document.getElementById('newPassword2').value;
+  msg.className = 'msg error';
+  if (!newP || !newP2) {
+    msg.textContent = '请填写所有字段';
+    return;
+  }
+  if (newP !== newP2) {
+    msg.textContent = '两次输入的新密码不一致';
+    return;
+  }
+  if (newP.length < 4 || newP.length > 50) {
+    msg.textContent = '新密码需为 4-50 个字符';
+    return;
+  }
+  btn.disabled = true;
+  msg.textContent = '修改中…';
+  try {
+    await api('/password', { method: 'PUT', body: JSON.stringify({ new_password: newP }) });
+    msg.className = 'msg ok';
+    msg.textContent = '密码已更新 ✔';
+    document.getElementById('newPassword').value = '';
+    document.getElementById('newPassword2').value = '';
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// 最近登录来源
+async function loadLoginLog() {
+  var list = document.getElementById('loginLogList');
+  try {
+    var data = await api('/login-log');
+    if (!data.logs || !data.logs.length) {
+      list.innerHTML = '<div class="empty">暂无记录，登录后即可展示</div>';
+      return;
+    }
+    list.innerHTML = data.logs.map(function (log) {
+      var haveApp = log.app_name;
+      return '<div class="login-item"><span class="app ' + (haveApp ? '' : 'direct') + '"><span class="dot"></span>' + (haveApp ? escapeHtml(log.app_name) : '直接访问') + '</span><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
+  }
+}
+
+function escapeHtml(t) {
+  var d = document.createElement('div');
+  d.textContent = t || '';
+  return d.innerHTML;
+}
+
+// 登录时间显示：数据库存 UTC，转本地时区后截到分钟（YYYY-MM-DD HH:MM）
+function fmtDateTime(v) {
+  if (!v) return '';
+  var s = String(v).replace('T', ' ');  // 'YYYY-MM-DD HH:MM:SS'（UTC）
+  var d = new Date(s.replace(' ', 'T') + 'Z');  // 按 UTC 解析
+  if (isNaN(d.getTime())) return s.slice(0, 16);
+  var p = function (n) { return n < 10 ? '0' + n : String(n); };
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+// 每次访问时验证本地凭证
+if (getSession()) {
+  api('/me')
+    .then(function (data) {
+      if (data && data.created_at) {
+        var s = String(data.created_at);
+        var d = new Date(s.replace(' ', 'T'));
+        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10) : d.toLocaleDateString('zh-CN');
+      }
+      enterUserView(data.email);
+      loadProfileForm();
+      loadLoginLog();
+      // 显示邀请码卡片（空态：点击"生成邀请码"才请求后端，不随页面自动生成）
+      var inviteCard = document.getElementById('inviteCodeCard');
+      if (inviteCard) inviteCard.style.display = '';
+    })
+    .catch(function () {
+      // token 失效：app.js 的 401 处理已清除本地会话并刷新回登录界面
+    });
+}
+</script>
+</body>
+</html>
