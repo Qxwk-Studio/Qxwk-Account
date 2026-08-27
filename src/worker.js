@@ -3,7 +3,7 @@
 import {
   json, error,
   hashPassword, verifyPassword, createSession, getUserId, assignColor,
-  isValidNickname, isValidPassword,
+  isValidNickname, isValidPassword, getAvatarUrl,
   USER_COLORS,
 } from './lib.js';
 
@@ -160,7 +160,7 @@ async function handleApi(request, env) {
     // 登录来源日志（client_id 来自 SSO 流程）
     await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)')
       .bind(user.id, clientId).run();
-    return json({ token, userId: user.id, nickname: user.nickname, color: user.color, created_at: user.created_at });
+    return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
   // POST /api/set-password（账号密码哈希为空时，首次设置密码并登录）
@@ -170,7 +170,7 @@ async function handleApi(request, env) {
     const newPassword = String(body.new_password || '');
     if (!nickname) return error('请填写昵称');
     if (!isValidPassword(newPassword)) return error('密码需为 4-50 个字符');
-    const user = await DB.prepare('SELECT id, nickname, color, password_hash, created_at FROM users WHERE nickname = ?').bind(nickname).first();
+    const user = await DB.prepare('SELECT id, nickname, color, email, password_hash, created_at FROM users WHERE nickname = ?').bind(nickname).first();
     if (!user) return error('用户不存在', 401);
     // 仅允许密码哈希为空的账号走此口子（已设密码的请走 /api/password）
     if (user.password_hash) return error('该账号已设置密码，请直接登录', 409);
@@ -179,16 +179,16 @@ async function handleApi(request, env) {
     const token = await createSession(DB, user.id);
     await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)')
       .bind(user.id, null).run();
-    return json({ token, userId: user.id, nickname: user.nickname, color: user.color, created_at: user.created_at });
+    return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
-  // GET /api/me（登录：验证 token 有效性，供各站跨域调用；含 email）
+  // GET /api/me（登录：验证 token 有效性，供各站跨域调用；含 email 及 avatar 头像链接）
   if (method === 'GET' && path === '/api/me') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const user = await DB.prepare('SELECT id, nickname, color, email, created_at FROM users WHERE id = ?').bind(userId).first();
     if (!user) return error('用户不存在', 401);
-    return json({ userId: user.id, nickname: user.nickname, color: user.color, email: user.email, created_at: user.created_at });
+    return json({ userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
   // PUT /api/profile（登录：修改个人资料。可改昵称/颜色/邮箱）
@@ -237,7 +237,7 @@ async function handleApi(request, env) {
       .bind(nickname, color, email, userId).run();
 
     return json({
-      userId: user.id, nickname, color, email, created_at: user.created_at,
+      userId: user.id, nickname, color, email, avatar: getAvatarUrl(email), created_at: user.created_at,
     });
   }
 

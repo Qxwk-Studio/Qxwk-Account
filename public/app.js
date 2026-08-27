@@ -32,6 +32,7 @@ function saveSession(data) {
     userId: data.userId,
     nickname: data.nickname,
     color: data.color,
+    avatar: data.avatar || null,
   }));
 }
 

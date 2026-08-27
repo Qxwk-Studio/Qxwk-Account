@@ -9,7 +9,7 @@
 - **登录页**：登录 / 注册 / 主题切换 / 邀请码字段（按 `invite_code_required` 开关联动显隐）
 - **设置密码流程**：DB 中 `password_hash` 为空的账号（管理员预建/导入），登录时引导到「🔑 设置密码」表单，设完即登录
 - **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / QQ 邮箱）+ 重置密码（折叠，无需原密码）+ 邀请码卡 + 最近登录来源 + 退出登录
-- **头像**：填 QQ 邮箱（仅 `@qq.com`）走 WeAvatar；未填或加载失败回退文字头像（昵称首字 + 专属颜色）
+- **头像**：填 QQ 邮箱（仅 `@qq.com`）走 WeAvatar；邮箱 MD5 由 **后端集中计算**，所有接口统一返回 `avatar`（完整 WeAvatar URL），前端直接消费；未填邮箱或加载失败回退文字头像（昵称首字 + 专属颜色）
 - **SSO 回调**：`?redirect=<原站URL>` → 登录成功后跳回原站并携带 token
 - **已登录自动跳转**：通行证域名下已有有效会话时，访问带 redirect 的登录页自动跳回原站（一处登录、处处通行）
 - **CORS 白名单**：第三方站跨域调用 `/api/me` 验证 token，白名单外域被浏览器拦截
@@ -28,7 +28,7 @@
 │   └── 0001_init.sql       # 建表：users(含email) / sessions / apps / login_log / invite_codes / settings(含3默认开关)
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 白名单 + 静态资源回退
-│   └── lib.js              # PBKDF2 哈希 / 会话 / 颜色分配 / 邀请码生成
+│   └── lib.js              # PBKDF2 密码哈希 / 会话 / 颜色分配 / 邀请码生成 / MD5 + getAvatarUrl（头像 URL 唯一生成源头）
 ├── public/
 │   ├── index.html          # 根页分流（有会话→账号中心，无→登录）
 │   ├── login.html          # 登录 + 注册 + SSO 回调 + 设置密码
@@ -95,11 +95,11 @@ Cloudflare 控制台 → 你的 Worker → **设置** → **触发器** → **�
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/config` | 无 | 公开配置：`{inviteCodeRequired, inviteGenerateEnabled, inviteRegisterEnabled}` |
-| POST | `/api/register` | 无 | 注册：`{nickname, password, invite_code?}` → `{token, userId, nickname, color}`（需邀请码时校验并消耗） |
-| POST | `/api/login` | 无 | 登录：`{nickname, password, client_id?}` → `{token, ...}` 或空哈希账号返回 `{need_set_password:true}` |
-| POST | `/api/set-password` | 无 | 空哈希账号首次设密码：`{nickname, new_password}` → 发会话（已设密码的 409） |
-| GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, created_at}` |
-| PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}`（昵称改时校验冲突 409；邮箱限 `@qq.com`） |
+| POST | `/api/register` | 无 | 注册：`{nickname, password, invite_code?}` → `{token, userId, nickname, color, avatar(null), created_at(ISO8601)}`（需邀请码时校验并消耗；新注册未填邮箱 avatar=null） |
+| POST | `/api/login` | 无 | 登录：`{nickname, password, client_id?}` → 成功：`{token, userId, nickname, color, email, avatar, created_at}`；空哈希账号返回 `{need_set_password:true, nickname, color}`（前端据此跳转"设置密码"表单） |
+| POST | `/api/set-password` | 无 | 空哈希账号首次设密码：`{nickname, new_password}` → `{token, userId, nickname, color, email, avatar, created_at}`（已设过密码的返回 409） |
+| GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, avatar, created_at}` |
+| PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}` → `{userId, nickname, color, email, avatar, created_at}`（昵称改时校验冲突 409；邮箱限 `@qq.com`；邮箱变后 avatar 同步更新） |
 | PUT | `/api/password` | Bearer | 重置密码：`{new_password}`（4-50 字符，无需原密码，保留当前会话） |
 | POST | `/api/logout` | Bearer | 退出登录：撤销当前会话 |
 | GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制） |
@@ -107,6 +107,8 @@ Cloudflare 控制台 → 你的 Worker → **设置** → **触发器** → **�
 | GET | `/api/login-log` | Bearer | 最近 10 条登录来源（JOIN apps.name） |
 
 **跨站验证 token**（供原站使用）：`fetch('https://account.qxwkstudio.top/api/me', { headers: { Authorization: 'Bearer ' + token } })`。Worker 回显 CORS 白名单头，未在 `apps` 表注册的 Origin 被浏览器拦截。
+
+> 💡 **关于 avatar 字段**：所有返回用户资料的接口都会同步返回 `avatar`（类型 `string | null`）。URL 形如 `https://weavatar.com/avatar/{md5}?s=400&d=404`，请求头需允许跨域（`<img>` 默认允许，建议加 `referrerPolicy="no-referrer"`）。消费方不必自己实现 MD5。
 
 ## 🔗 SSO 对接（供各站点接入）
 
@@ -175,6 +177,8 @@ npx wrangler d1 execute qxwk-account --local --command "INSERT INTO apps (name, 
 - **颜色分配**：注册按顺序从 60 色 Material 调色板取色，池子占满后循环。
 - **邀请码**：8 位去易混淆字符（I/O/0/1），原子 `UPDATE ... WHERE used_at IS NULL` 消耗（用后即焚）；一码制——用户始终只保留一个未使用码，旧码消耗后才生成下一个，防止生成过多。
 - **空哈希账号**：支持管理员预建/导入无密码账号，用户首次登录时引导设置密码。
+- **头像 URL 集中计算**：WeAvatar 链接基于 `md5(lowercase(trim(email)))`。为保持前后端口径一致、**避免多个项目重复维护 MD5 实现**，本项目后端（`src/lib.js`）保留唯一一份纯 JS MD5（blueimp-md5 v1.1.0 协议）并提供 `getAvatarUrl(email)` 工具函数。所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
+- **响应式边距（前端一致性）**：账号中心、登录、设置密码等所有含页面骨架的页面统一断点和间距规范，新增页面务必遵守：`.navbar-inner 0 24px / main 36 24 60 / card 24px / footer 14 24px`（桌面）→ `@media (max-width: 640px) navbar-inner 0 12 / main 20 12 32 / card 14px / footer 12 12px`（手机），避免不同页面松紧不一。
 
 ---
 
