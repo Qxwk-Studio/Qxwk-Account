@@ -1,5 +1,6 @@
 -- Qxwk-Account 通行证服务 · 初始建表（包含邮箱支持）
--- 用户 / 会话 / 第三方应用注册表 / 登录来源日志 / 邀请码 / 系统设置
+-- 用户 / 会话 / 第三方应用注册表 / 登录来源日志 / 邮箱验证码 / 邀请码 / 系统设置
+-- 由原 0002_email.sql 合并而来：邮箱验证码表 + users.email_verified 列 + 邮箱唯一索引一并内联
 
 -- 用户表（昵称 + PBKDF2 密码哈希，color 用于头像配色，email 用户资料）
 CREATE TABLE IF NOT EXISTS users (
@@ -8,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,          -- 格式：salt:hash（PBKDF2 100k 迭代 SHA-256）
   color TEXT NOT NULL,                  -- 头像颜色（USER_COLORS 顺序分配）
   email TEXT,                            -- 用户邮箱（可选、非唯一、仅做格式校验）
+  email_verified INTEGER DEFAULT 0,     -- 邮箱已验证标记（0 未验证 / 1 已验证；老数据默认 0）
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -41,6 +43,26 @@ CREATE TABLE IF NOT EXISTS login_log (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_login_log_user ON login_log(user_id);
+
+-- 邮箱验证码表（绑定验证 + 找回密码复用）
+-- purpose = 'verify' 绑定验证 | 'reset' 找回密码（同一张表两用途）
+-- code 明文存储（D1 私有）；expires_at 过期即失效；used_at 置位后不可再用于后续校验
+CREATE TABLE IF NOT EXISTS email_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,             -- 归属用户（reset 时按邮箱定位到该用户）
+  email TEXT NOT NULL,                  -- 目标邮箱
+  code TEXT NOT NULL,                   -- 6 位数字验证码
+  purpose TEXT NOT NULL,                -- 'verify' | 'reset'
+  expires_at TEXT NOT NULL,             -- 过期时间，如 datetime('now', '+10 minutes')
+  used_at TEXT,                         -- 使用时间，NULL = 未使用（用后即焚）
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_email_codes_user ON email_codes(user_id, purpose);
+CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, purpose);
+
+-- 邮箱加唯一索引（避免一人占多邮箱 / 一邮箱绑多号）
+-- WHERE email IS NOT NULL：兼容现有「空串→null」逻辑，避免多行 NULL 冲突
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
 
 -- 应用种子数据不硬编码进迁移（避免绑定域名）。
 -- 部署后用以下 SQL 插入（见 README「接入新站点」）：

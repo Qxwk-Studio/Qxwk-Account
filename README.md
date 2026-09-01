@@ -8,8 +8,9 @@
 - **邀请码注册**：默认注册需邀请码（`invite_code_required` 开关），账号中心一键生成（一码制：有未使用码则返回、无则生成，消耗后才产下一个）
 - **登录页**：登录 / 注册 / 主题切换 / 邀请码字段（按 `invite_code_required` 开关联动显隐）
 - **设置密码流程**：DB 中 `password_hash` 为空的账号（管理员预建/导入），登录时引导到「🔑 设置密码」表单，设完即登录
-- **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / QQ 邮箱）+ 重置密码（折叠，无需原密码）+ 邀请码卡 + 最近登录来源 + 退出登录
-- **头像**：填 QQ 邮箱（仅 `@qq.com`）走 WeAvatar；邮箱 MD5 由 **后端集中计算**，所有接口统一返回 `avatar`（完整 WeAvatar URL），前端直接消费；未填邮箱或加载失败回退文字头像（昵称首字 + 专属颜色）
+- **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / 邮箱）+ 重置密码（折叠，无需原密码）+ 邀请码卡 + 最近登录来源 + 退出登录
+- **邮箱验证**：账号中心右侧「📧 邮箱验证」卡，填写左侧邮箱 → 发送验证码（Resend 发信）→ 输入验证码绑定；绑定后邮箱标记已验证
+- **头像**：**仅 `@qq.com`** 邮箱走 WeAvatar 头像（头像优先级：已绑定邮箱中有 `@qq.com` 且已验证）；邮箱 MD5 由 **后端集中计算**，所有接口统一返回 `avatar`（完整 WeAvatar URL），前端直接消费；无 QQ 邮箱或图片加载失败回退文字头像（昵称首字 + 专属颜色）
 - **SSO 回调**：`?redirect=<原站URL>` → 登录成功后跳回原站并携带 token
 - **已登录自动跳转**：通行证域名下已有有效会话时，访问带 redirect 的登录页自动跳回原站（一处登录、处处通行）
 - **CORS 白名单**：第三方站跨域调用 `/api/me` 验证 token，白名单外域被浏览器拦截
@@ -25,10 +26,10 @@
 
 ```
 ├── migrations/
-│   └── 0001_init.sql       # 建表：users(含email) / sessions / apps / login_log / invite_codes / settings(含3默认开关)
+│   └── 0001_init.sql       # 建表：users(含email) / sessions / apps / login_log / invite_codes / settings(含3默认开关) / email_codes
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 白名单 + 静态资源回退
-│   └── lib.js              # PBKDF2 密码哈希 / 会话 / 颜色分配 / 邀请码生成 / MD5 + getAvatarUrl（头像 URL 唯一生成源头）
+│   └── lib.js              # PBKDF2 密码哈希 / 会话 / 颜色分配 / 邀请码生成 / MD5 + getAvatarUrl / sendEmail(Resend) + genEmailCode
 ├── public/
 │   ├── index.html          # 根页分流（有会话→账号中心，无→登录）
 │   ├── login.html          # 登录 + 注册 + SSO 回调 + 设置密码
@@ -66,9 +67,26 @@ database_id = "你的-D1-数据库ID"
 npx wrangler d1 migrations apply qxwk-account --remote
 ```
 
-`0001_init.sql` 为全包含迁移，一次性创建全部表并写入三项默认设置（`invite_generate_enabled=1`、`invite_register_enabled=1`、`invite_code_required=1`）。
+`0001_init.sql` 为全包含迁移，一次性创建全部表并写入三项默认设置（`invite_generate_enabled=1`、`invite_register_enabled=1`、`invite_code_required=1`）；`0002_email.sql` 追加邮箱验证所需的 `email_codes` 表与 `users.email_verified` 列。`migrations apply` 会按顺序自动应用所有待执行迁移。
 
-### 4. 插入 SSO 白名单站点
+### 4. 配置邮件服务（Resend）与 KEY
+
+邮箱验证依赖 [Resend](https://resend.com) 发信。需在 Resend 后台完成 **发件域名验证**（SPF/DKIM 的 DNS 记录，发件人默认 `no-reply@account.qxwkstudio.top`，见 `src/lib.js` 的 `sendEmail`），否则 Worker 会返回「邮件发送失败」。
+
+密钥 **不要写进 `wrangler.toml`**（会被提交）。分环境存放：
+
+- **本地开发**：在项目根目录建 `.dev.vars`（已在 `.gitignore`，不会提交）：
+  ```dotenv
+  EMAIL_API_KEY=re_你的_resend_key
+  ```
+  `wrangler dev` 会自动加载。
+- **线上生产**：用密钥存储，不落文件：
+  ```bash
+  npx wrangler secret put EMAIL_API_KEY   # 粘贴 re_... key，加密存于 Cloudflare Worker
+  ```
+  或在控制台 Worker → **设置** → **变量与机密** 中添加该 Secret。
+
+### 5. 插入 SSO 白名单站点
 
 ```sql
 INSERT INTO apps (name, origin, homepage) VALUES
@@ -78,13 +96,13 @@ INSERT INTO apps (name, origin, homepage) VALUES
 
 执行：`npx wrangler d1 execute qxwk-account --remote --command "<上面的 SQL>"`
 
-### 5. 部署 Worker
+### 6. 部署 Worker
 
 ```bash
 npx wrangler deploy
 ```
 
-### 6. 自定义域名
+### 7. 自定义域名
 
 Cloudflare 控制台 → 你的 Worker → **设置** → **触发器** → **自定义域** → 加 `account.qxwkstudio.top`。
 
@@ -98,8 +116,10 @@ Cloudflare 控制台 → 你的 Worker → **设置** → **触发器** → **�
 | POST | `/api/register` | 无 | 注册：`{nickname, password, invite_code?}` → `{token, userId, nickname, color, avatar(null), created_at(ISO8601)}`（需邀请码时校验并消耗；新注册未填邮箱 avatar=null） |
 | POST | `/api/login` | 无 | 登录：`{nickname, password, client_id?}` → 成功：`{token, userId, nickname, color, email, avatar, created_at}`；空哈希账号返回 `{need_set_password:true, nickname, color}`（前端据此跳转"设置密码"表单） |
 | POST | `/api/set-password` | 无 | 空哈希账号首次设密码：`{nickname, new_password}` → `{token, userId, nickname, color, email, avatar, created_at}`（已设过密码的返回 409） |
-| GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, avatar, created_at}` |
-| PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}` → `{userId, nickname, color, email, avatar, created_at}`（昵称改时校验冲突 409；邮箱限 `@qq.com`；邮箱变后 avatar 同步更新） |
+| GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, email_verified, avatar, created_at}` |
+| PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}` → `{userId, nickname, color, email, avatar, created_at}`（昵称改时校验冲突 409；邮箱不限服务商、可为空；邮箱变更后自动 `email_verified=0` 需重新验证） |
+| POST | `/api/email/send-code` | Bearer | 发送验证码：`{email}` → 写入 `email_codes` 并经 Resend 发信（未配置 `EMAIL_API_KEY` 返回 503；60 秒内重发返回 429；验证码 10 分钟有效） |
+| POST | `/api/email/verify` | Bearer | 绑定并验证：`{email, code}` → 校验并原子消耗验证码（用后即焚），通过后 `email_verified=1`；邮箱被他人占用返回 409 |
 | PUT | `/api/password` | Bearer | 重置密码：`{new_password}`（4-50 字符，无需原密码，保留当前会话） |
 | POST | `/api/logout` | Bearer | 退出登录：撤销当前会话 |
 | GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制） |
@@ -151,9 +171,11 @@ npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET val
 
 ```bash
 npm i -g wrangler
-npx wrangler d1 migrations apply qxwk-account --local   # 本地建表
+npx wrangler d1 migrations apply qxwk-account --local   # 本地建表（0001 + 0002）
 npx wrangler dev                                        # 默认 localhost:8787
 ```
+
+本地若要测试邮箱验证，先建 `.dev.vars` 放 `EMAIL_API_KEY=re_xxx`（见「部署指南」第 4 步），`wrangler dev` 自动加载。验证码输入行默认隐藏（`.code-row`），可在控制台执行 `document.getElementById('codeRow').classList.add('show')` 预览样式。
 
 或用 npm 脚本：`npm run dev` / `npm run migrate:local` / `npm run deploy` / `npm run migrate:remote`。
 
@@ -177,7 +199,8 @@ npx wrangler d1 execute qxwk-account --local --command "INSERT INTO apps (name, 
 - **颜色分配**：注册按顺序从 60 色 Material 调色板取色，池子占满后循环。
 - **邀请码**：8 位去易混淆字符（I/O/0/1），原子 `UPDATE ... WHERE used_at IS NULL` 消耗（用后即焚）；一码制——用户始终只保留一个未使用码，旧码消耗后才生成下一个，防止生成过多。
 - **空哈希账号**：支持管理员预建/导入无密码账号，用户首次登录时引导设置密码。
-- **头像 URL 集中计算**：WeAvatar 链接基于 `md5(lowercase(trim(email)))`。为保持前后端口径一致、**避免多个项目重复维护 MD5 实现**，本项目后端（`src/lib.js`）保留唯一一份纯 JS MD5（blueimp-md5 v1.1.0 协议）并提供 `getAvatarUrl(email)` 工具函数。所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
+- **头像 URL 集中计算**：WeAvatar 链接基于 `md5(lowercase(trim(email)))`。**只有 `@qq.com` 邮箱会生成头像 URL**（其它邮箱 `avatar=null`），且仅在邮箱绑定并验证后生效。为保持前后端口径一致、**避免多个项目重复维护 MD5 实现**，本项目后端（`src/lib.js`）保留唯一一份纯 JS MD5（blueimp-md5 v1.1.0 协议）并提供 `getAvatarUrl(email)` 工具函数。所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
+- **邮箱验证**：6 位验证码由 `crypto.getRandomValues` 生成；`email_codes` 表一码制（发新码即删该用户旧码），验证时用「用后即焚」原子 UPDATE（同时并发重放只成功一次）；码不存在/过期/已用统一报「验证码错误或已过期」防枚举；60 秒限发防刷；验证通过才写 `users.email_verified=1`。修改邮箱（含清空）会重置 `email_verified=0`，需重新验证。发信走 Resend，密钥经 `EMAIL_API_KEY` 注入（本地 `.dev.vars` / 线上 Secret），不落仓库。
 - **响应式边距（前端一致性）**：账号中心、登录、设置密码等所有含页面骨架的页面统一断点和间距规范，新增页面务必遵守：`.navbar-inner 0 24px / main 36 24 60 / card 24px / footer 14 24px`（桌面）→ `@media (max-width: 640px) navbar-inner 0 12 / main 20 12 32 / card 14px / footer 12 12px`（手机），避免不同页面松紧不一。
 
 ---

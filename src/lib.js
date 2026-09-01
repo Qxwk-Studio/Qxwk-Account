@@ -257,9 +257,39 @@ function md5(s) {
   return hex(md51(s));
 }
 
-// 根据邮箱生成 WeAvatar 头像链接；无邮箱时返回 null（前端需自行回退文字头像）
+// 根据邮箱生成 WeAvatar 头像链接：仅 QQ 邮箱返回链接；其余邮箱或无邮箱返回 null（前端回退文字头像）
 export function getAvatarUrl(email) {
   if (!email) return null;
+  if (!/@qq\.com$/i.test(String(email).trim())) return null;
   const hash = md5(String(email).trim().toLowerCase());
   return 'https://weavatar.com/avatar/' + hash + '?s=400&d=404';
+}
+
+// 生成 6 位数字邮箱验证码（crypto 随机，非 Math.random）
+export function genEmailCode() {
+  const n = new DataView(randomBytes(4).buffer).getUint32(0);
+  return String(n % 1000000).padStart(6, '0');
+}
+
+// 发送邮件：调用 Resend API。env.EMAIL_API_KEY 需在 wrangler.toml 或 secret 中配置
+// from 域名需在 Resend 后台完成 SPF/DKIM 验证后才能作为发件地址
+export async function sendEmail(env, to, subject, html) {
+  const key = env.EMAIL_API_KEY;
+  if (!key) throw new Error('未配置 EMAIL_API_KEY');
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'Qxwk 通行证 <no-reply@account.qxwkstudio.top>',
+      to, subject, html,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`邮件发送失败 ${res.status}: ${detail}`);
+  }
+  return res.json();
 }

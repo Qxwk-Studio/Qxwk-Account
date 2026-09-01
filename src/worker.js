@@ -4,6 +4,7 @@ import {
   json, error,
   hashPassword, verifyPassword, createSession, getUserId, assignColor,
   isValidNickname, isValidPassword, getAvatarUrl,
+  genEmailCode, sendEmail,
   USER_COLORS,
 } from './lib.js';
 
@@ -186,9 +187,9 @@ async function handleApi(request, env) {
   if (method === 'GET' && path === '/api/me') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
-    const user = await DB.prepare('SELECT id, nickname, color, email, created_at FROM users WHERE id = ?').bind(userId).first();
+    const user = await DB.prepare('SELECT id, nickname, color, email, email_verified, created_at FROM users WHERE id = ?').bind(userId).first();
     if (!user) return error('用户不存在', 401);
-    return json({ userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
+    return json({ userId: user.id, nickname: user.nickname, color: user.color, email: user.email, email_verified: !!user.email_verified, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
   // PUT /api/profile（登录：修改个人资料。可改昵称/颜色/邮箱）
@@ -214,31 +215,101 @@ async function handleApi(request, env) {
         nickname = raw;
       }
     }
-    // 颜色：必须在 30 色池内
+    // 颜色：必须在 60 色池内
     if (Object.prototype.hasOwnProperty.call(body, 'color')) {
       if (typeof body.color !== 'string' || !USER_COLORS.includes(body.color)) {
         return error('颜色无效，请从预置色板中选择');
       }
       color = body.color;
     }
-    // QQ 邮箱：空串→清空为 null；非空则必须为 @qq.com 后缀
+    // 邮箱：空串→清空为 null；非空则必须为合法邮箱地址（不限服务商）
     if (Object.prototype.hasOwnProperty.call(body, 'email')) {
       const raw = typeof body.email === 'string' ? body.email.trim() : '';
       if (raw === '') {
         email = null;
-      } else if (!/^[a-zA-Z0-9._-]+@qq\.com$/i.test(raw)) {
-        return error('仅支持 QQ 邮箱（@qq.com）');
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+        return error('请输入正确的邮箱地址');
       } else {
         email = raw;
       }
     }
 
+    // 邮箱若发生变更，需重新验证 → 重置 email_verified=0（含清空邮箱）
+    const emailChanged = email !== user.email;
     await DB.prepare('UPDATE users SET nickname = ?, color = ?, email = ? WHERE id = ?')
       .bind(nickname, color, email, userId).run();
+    if (emailChanged) {
+      await DB.prepare('UPDATE users SET email_verified = 0 WHERE id = ?').bind(userId).run();
+    }
 
     return json({
       userId: user.id, nickname, color, email, avatar: getAvatarUrl(email), created_at: user.created_at,
     });
+  }
+
+  // POST /api/email/send-code（登录：发送验证码到指定 QQ 邮箱，绑定邮箱时调用）
+  if (method === 'POST' && path === '/api/email/send-code') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    if (!env.EMAIL_API_KEY) return error('邮件服务未配置，请联系管理员', 503);
+    const body = await request.json().catch(() => ({}));
+    const email = String(body.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
+
+    // 防刷：60 秒内同邮箱仍有未使用验证码则直接拒绝
+    const recent = await DB.prepare(
+      `SELECT 1 FROM email_codes WHERE email = ? AND used_at IS NULL
+       AND expires_at > datetime('now')
+       AND created_at > datetime('now', '-1 minute')`
+    ).bind(email).first();
+    if (recent) return error('发送太频繁，请稍后再试', 429);
+
+    const code = genEmailCode();
+    // 一码制：先删该用户此用途的旧码再插入新码（时间跨度 >1 分钟的旧码也清干净）
+    await DB.prepare("DELETE FROM email_codes WHERE user_id = ? AND purpose = 'verify'").bind(userId).run();
+    await DB.prepare(
+      `INSERT INTO email_codes (user_id, email, code, purpose, expires_at)
+       VALUES (?, ?, ?, 'verify', datetime('now', '+10 minutes'))`
+    ).bind(userId, email, code).run();
+
+    try {
+      await sendEmail(env, email, 'Qxwk 通行证 · 邮箱验证码',
+        `你的验证码是 <b>${code}</b>，10 分钟内有效。若非本人操作请忽略。`);
+    } catch (e) {
+      return error('邮件发送失败，请稍后重试', 502);
+    }
+    return json({ ok: true });
+  }
+
+  // POST /api/email/verify（登录：校验验证码，通过后绑定邮箱并标记已验证）
+  if (method === 'POST' && path === '/api/email/verify') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    const body = await request.json().catch(() => ({}));
+    const email = String(body.email || '').trim();
+    const code = String(body.code || '').trim();
+
+    // 不区分「码不存在/过期/已用」，统一报错，防枚举
+    const row = await DB.prepare(
+      `SELECT id FROM email_codes WHERE user_id = ? AND email = ? AND purpose = 'verify'
+       AND code = ? AND used_at IS NULL AND expires_at > datetime('now')`
+    ).bind(userId, email, code).first();
+    if (!row) return error('验证码错误或已过期', 400);
+
+    // 原子标记已用（用后即焚），并发重放时第二个请求到此会失败
+    const done = await DB.prepare(
+      `UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL`
+    ).bind(row.id).run();
+    if (done.meta.changes === 0) return error('验证码错误或已过期', 400);
+
+    // 绑定邮箱并标记已验证（唯一索引冲突说明该邮箱已被他人绑定）
+    try {
+      await DB.prepare('UPDATE users SET email = ?, email_verified = 1 WHERE id = ?')
+        .bind(email, userId).run();
+    } catch (e) {
+      return error('该邮箱已被其他账号绑定', 409);
+    }
+    return json({ ok: true, email });
   }
 
   // PUT /api/password（登录：修改密码。凭 Bearer 会话直接改，新密码 4-50 字符）
