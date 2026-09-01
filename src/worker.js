@@ -4,7 +4,7 @@ import {
   json, error,
   hashPassword, verifyPassword, createSession, getUserId, assignColor,
   isValidNickname, isValidPassword, getAvatarUrl,
-  genEmailCode, sendEmail,
+  genEmailCode, sendEmail, renderResetEmail, renderBrandEmail,
   USER_COLORS,
 } from './lib.js';
 
@@ -142,20 +142,22 @@ async function handleApi(request, env) {
   // POST /api/login（可选 client_id：来源站点，写入 login_log）
   if (method === 'POST' && path === '/api/login') {
     const body = await request.json().catch(() => ({}));
-    const nickname = String(body.nickname || '').trim();
+    const account = String(body.nickname || body.account || '').trim();
     const password = String(body.password || '');
     const clientId = Number(body.client_id) || null;
-    if (!nickname) return error('请填写昵称');
+    if (!account) return error('请填写昵称或邮箱');
 
-    const user = await DB.prepare('SELECT * FROM users WHERE nickname = ?').bind(nickname).first();
-    if (!user) return error('昵称或密码不正确', 401);
+    // 昵称优先：先按昵称精确匹配；未命中再按邮箱（忽略大小写）匹配
+    const user = await DB.prepare('SELECT * FROM users WHERE nickname = ?').bind(account).first()
+      || await DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(account).first();
+    if (!user) return error('帐号或密码不正确', 401);
     // 密码哈希为空：账号已建但未设密码，要求设置密码（不在此处泄露密码是否正确）
     if (!user.password_hash) {
-      return json({ need_set_password: true });
+      return json({ need_set_password: true, identity: user.nickname });
     }
     if (!password) return error('请填写密码');
     const ok = await verifyPassword(password, user.password_hash);
-    if (!ok) return error('昵称或密码不正确', 401);
+    if (!ok) return error('帐号或密码不正确', 401);
 
     const token = await createSession(DB, user.id);
     // 登录来源日志（client_id 来自 SSO 流程）
@@ -273,8 +275,11 @@ async function handleApi(request, env) {
     ).bind(userId, email, code).run();
 
     try {
-      await sendEmail(env, email, 'Qxwk 通行证 · 邮箱验证码',
-        `你的验证码是 <b>${code}</b>，10 分钟内有效。若非本人操作请忽略。`);
+      await sendEmail(env, email, 'Qxwk 通行证 · 邮箱验证码', renderBrandEmail({
+        eyebrow: 'Qxwk 通行证', title: '邮箱验证码',
+        intro: '你好，这是一封用于绑定邮箱的验证邮件。请在页面输入下方 6 位验证码完成验证：',
+        code,
+      }));
     } catch (e) {
       return error('邮件发送失败，请稍后重试', 502);
     }
@@ -310,6 +315,78 @@ async function handleApi(request, env) {
       return error('该邮箱已被其他账号绑定', 409);
     }
     return json({ ok: true, email });
+  }
+
+  // POST /api/forgot-send（无需登录：向已绑定且已验证的邮箱发送密码重置验证码；未知/未验证邮箱返回最少信息文案）
+  if (method === 'POST' && path === '/api/forgot-send') {
+    if (!env.EMAIL_API_KEY) return error('邮件服务未配置，请联系管理员', 503);
+    const body = await request.json().catch(() => ({}));
+    const email = String(body.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
+
+    const user = await DB.prepare('SELECT id, email_verified FROM users WHERE LOWER(email) = LOWER(?)')
+      .bind(email).first();
+    // 未知邮箱 / 未验证：返回最少信息文案
+    if (!user || !user.email_verified) {
+      return error('该邮箱未验证', 400);
+    }
+    const recent = await DB.prepare(
+      `SELECT 1 FROM email_codes WHERE email = ? AND purpose = 'reset' AND used_at IS NULL
+       AND expires_at > datetime('now') AND created_at > datetime('now', '-1 minute')`
+    ).bind(email).first();
+    if (!recent) {
+      const code = genEmailCode();
+      // 一码制：清掉该用户此用途旧码再插入新码
+      await DB.prepare("DELETE FROM email_codes WHERE user_id = ? AND purpose = 'reset'").bind(user.id).run();
+      await DB.prepare(
+        `INSERT INTO email_codes (user_id, email, code, purpose, expires_at)
+         VALUES (?, ?, ?, 'reset', datetime('now', '+10 minutes'))`
+      ).bind(user.id, email, code).run();
+      try {
+        await sendEmail(env, email, 'Qxwk 通行证 · 重置密码', renderResetEmail(code));
+      } catch (e) {
+        // 已注册且已验证但真实发送失败：明确报错，方便用户重试
+        return error('邮件发送失败，请稍后重试', 502);
+      }
+    }
+    return json({ ok: true, msg: '验证码已发送，请查收邮箱' });
+  }
+
+  // POST /api/forgot-reset（无需登录：校验重置码，通过后设置新密码并登录；旧会话随 createSession 轮换失效）
+  if (method === 'POST' && path === '/api/forgot-reset') {
+    const body = await request.json().catch(() => ({}));
+    const email = String(body.email || '').trim();
+    const code = String(body.code || '').trim();
+    const newPassword = String(body.new_password || '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
+    if (!code) return error('请输入验证码');
+    if (!isValidPassword(newPassword)) return error('新密码需为 4-50 个字符');
+    if (newPassword !== String(body.new_password_confirm || '')) return error('两次输入的密码不一致');
+
+    const user = await DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
+    // 未知邮箱/未验证邮箱统一报同一错误，防枚举
+    if (!user || !user.email_verified) return error('验证码错误或已过期', 400);
+
+    const row = await DB.prepare(
+      `SELECT id FROM email_codes WHERE user_id = ? AND email = ? AND purpose = 'reset'
+       AND code = ? AND used_at IS NULL AND expires_at > datetime('now')`
+    ).bind(user.id, email, code).first();
+    if (!row) return error('验证码错误或已过期', 400);
+
+    // 原子消耗（用后即焚）
+    const done = await DB.prepare(
+      `UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL`
+    ).bind(row.id).run();
+    if (done.meta.changes === 0) return error('验证码错误或已过期', 400);
+
+    // 更新密码 + 轮换会话（createSession 会删除该用户旧会话，重置后他处登录被登出）
+    const passwordHash = await hashPassword(newPassword);
+    await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, user.id).run();
+    const token = await createSession(DB, user.id);
+    return json({
+      token, userId: user.id, nickname: user.nickname, color: user.color,
+      email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at,
+    });
   }
 
   // PUT /api/password（登录：修改密码。凭 Bearer 会话直接改，新密码 4-50 字符）

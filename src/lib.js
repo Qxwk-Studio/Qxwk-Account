@@ -86,7 +86,7 @@ export async function getUserId(DB, request) {
   return row ? row.user_id : null;
 }
 
-// 注册时分配颜色：按注册顺序（用户数）取色，超过 30 色循环
+// 注册时分配颜色：按注册顺序（用户数）取色，超过 60 色循环
 export async function assignColor(DB) {
   const { count } = await DB.prepare('SELECT COUNT(*) as count FROM users').first();
   return USER_COLORS[count % USER_COLORS.length];
@@ -292,4 +292,67 @@ export async function sendEmail(env, to, subject, html) {
     throw new Error(`邮件发送失败 ${res.status}: ${detail}`);
   }
   return res.json();
+}
+
+// 品牌邮件 HTML 模板（验证码 / 重置密码通用）。table + 内联样式，兼容主流邮箱客户端
+export function renderBrandEmail({
+  eyebrow = 'Qxwk 通行证',
+  title = '邮箱验证码',
+  intro = '',
+  code = '',
+  validity = '<b>10 分钟</b> 内有效，过期需重新获取。',
+  warn = '若非本人操作，请忽略本邮件，并不要将验证码告知任何人。',
+} = {}) {
+  return `<div style="background:#f1f5f9;margin:0;padding:32px 16px;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width:420px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;">
+          <tr>
+            <td style="background:#2563eb;padding:6px 0;"></td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px 0;text-align:center;">
+              <div style="font-size:17px;font-weight:700;color:#0f172a;letter-spacing:.3px;">青翔未阔工作室</div>
+              <div style="font-size:12px;color:#64748b;margin-top:2px;">${eyebrow} · ${title}</div>
+            </td>
+          </tr>
+          ${intro ? `<tr>
+            <td style="padding:20px 32px 0;font-size:14px;line-height:1.7;color:#334155;">${intro}</td>
+          </tr>` : ''}
+          <tr>
+            <td style="padding:18px 32px 0;">
+              <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:18px;text-align:center;">
+                <div style="font-size:11px;color:#64748b;letter-spacing:1px;">验证码</div>
+                <div style="font-size:32px;font-weight:800;letter-spacing:6px;color:#2563eb;margin-top:4px;">${code}</div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px 0;font-size:12px;color:#64748b;text-align:center;">验证码 ${validity}</td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;font-size:12px;color:#92400e;line-height:1.6;">${warn}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px 24px;font-size:11px;color:#94a3b8;text-align:center;">此邮件由系统自动发送，请勿直接回复。</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>`;
+}
+
+// 生成密码重置验证码邮件 HTML
+export function renderResetEmail(code) {
+  return renderBrandEmail({
+    eyebrow: 'Qxwk 通行证',
+    title: '重置密码',
+    intro: '你好，我们收到了你的密码重置申请。请在页面输入下方验证码，并设置你的新密码：',
+    code,
+    warn: '若非本人操作，请忽略本邮件并不要告知他人验证码。',
+  });
 }

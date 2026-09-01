@@ -8,6 +8,7 @@
 - **邀请码注册**：默认注册需邀请码（`invite_code_required` 开关），账号中心一键生成（一码制：有未使用码则返回、无则生成，消耗后才产下一个）
 - **登录页**：登录 / 注册 / 主题切换 / 邀请码字段（按 `invite_code_required` 开关联动显隐）
 - **设置密码流程**：DB 中 `password_hash` 为空的账号（管理员预建/导入），登录时引导到「🔑 设置密码」表单，设完即登录
+- **忘记密码**：登录页「忘记密码？」入口，凭**已绑定且已验证的邮箱**发送重置验证码 → 输入验证码+新密码即可重置并登录（防枚举；成功后轮换会话，他处登录被登出）
 - **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / 邮箱）+ 重置密码（折叠，无需原密码）+ 邀请码卡 + 最近登录来源 + 退出登录
 - **邮箱验证**：账号中心右侧「📧 邮箱验证」卡，填写左侧邮箱 → 发送验证码（Resend 发信）→ 输入验证码绑定；绑定后邮箱标记已验证
 - **头像**：**仅 `@qq.com`** 邮箱走 WeAvatar 头像（头像优先级：已绑定邮箱中有 `@qq.com` 且已验证）；邮箱 MD5 由 **后端集中计算**，所有接口统一返回 `avatar`（完整 WeAvatar URL），前端直接消费；无 QQ 邮箱或图片加载失败回退文字头像（昵称首字 + 专属颜色）
@@ -114,12 +115,14 @@ Cloudflare 控制台 → 你的 Worker → **设置** → **触发器** → **�
 |------|------|------|------|
 | GET | `/api/config` | 无 | 公开配置：`{inviteCodeRequired, inviteGenerateEnabled, inviteRegisterEnabled}` |
 | POST | `/api/register` | 无 | 注册：`{nickname, password, invite_code?}` → `{token, userId, nickname, color, avatar(null), created_at(ISO8601)}`（需邀请码时校验并消耗；新注册未填邮箱 avatar=null） |
-| POST | `/api/login` | 无 | 登录：`{nickname, password, client_id?}` → 成功：`{token, userId, nickname, color, email, avatar, created_at}`；空哈希账号返回 `{need_set_password:true, nickname, color}`（前端据此跳转"设置密码"表单） |
+| POST | `/api/login` | 无 | 登录：`{nickname, password, client_id?}`（`nickname` 字段填**昵称或邮箱**，昵称优先，未命中再按邮箱大小写不敏感匹配）→ 成功：`{token, userId, nickname, color, email, avatar, created_at}`；空哈希账号返回 `{need_set_password:true, identity, nickname, color}`（前端据此跳转"设置密码"表单） |
 | POST | `/api/set-password` | 无 | 空哈希账号首次设密码：`{nickname, new_password}` → `{token, userId, nickname, color, email, avatar, created_at}`（已设过密码的返回 409） |
 | GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, email_verified, avatar, created_at}` |
 | PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}` → `{userId, nickname, color, email, avatar, created_at}`（昵称改时校验冲突 409；邮箱不限服务商、可为空；邮箱变更后自动 `email_verified=0` 需重新验证） |
 | POST | `/api/email/send-code` | Bearer | 发送验证码：`{email}` → 写入 `email_codes` 并经 Resend 发信（未配置 `EMAIL_API_KEY` 返回 503；60 秒内重发返回 429；验证码 10 分钟有效） |
 | POST | `/api/email/verify` | Bearer | 绑定并验证：`{email, code}` → 校验并原子消耗验证码（用后即焚），通过后 `email_verified=1`；邮箱被他人占用返回 409 |
+| POST | `/api/forgot-send` | 无 | 忘记密码——发重置码：`{email}` 仅向**已绑定且已验证**的邮箱发信；未知邮箱/未验证返回 400「该邮箱未验证」；已注册且已验证但真实发送失败返回 502；60 秒限发；10 分钟有效 |
+| POST | `/api/forgot-reset` | 无 | 忘记密码——重置：`{email, code, new_password, new_password_confirm}` → 校验并消耗重置码，更新密码并登录（createSession 轮换会话）；未知邮箱/未验证统一报「验证码错误或已过期」 |
 | PUT | `/api/password` | Bearer | 重置密码：`{new_password}`（4-50 字符，无需原密码，保留当前会话） |
 | POST | `/api/logout` | Bearer | 退出登录：撤销当前会话 |
 | GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制） |
@@ -201,6 +204,7 @@ npx wrangler d1 execute qxwk-account --local --command "INSERT INTO apps (name, 
 - **空哈希账号**：支持管理员预建/导入无密码账号，用户首次登录时引导设置密码。
 - **头像 URL 集中计算**：WeAvatar 链接基于 `md5(lowercase(trim(email)))`。**只有 `@qq.com` 邮箱会生成头像 URL**（其它邮箱 `avatar=null`），且仅在邮箱绑定并验证后生效。为保持前后端口径一致、**避免多个项目重复维护 MD5 实现**，本项目后端（`src/lib.js`）保留唯一一份纯 JS MD5（blueimp-md5 v1.1.0 协议）并提供 `getAvatarUrl(email)` 工具函数。所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
 - **邮箱验证**：6 位验证码由 `crypto.getRandomValues` 生成；`email_codes` 表一码制（发新码即删该用户旧码），验证时用「用后即焚」原子 UPDATE（同时并发重放只成功一次）；码不存在/过期/已用统一报「验证码错误或已过期」防枚举；60 秒限发防刷；验证通过才写 `users.email_verified=1`。修改邮箱（含清空）会重置 `email_verified=0`，需重新验证。发信走 Resend，密钥经 `EMAIL_API_KEY` 注入（本地 `.dev.vars` / 线上 Secret），不落仓库。
+- **忘记密码**：以**已验证邮箱**为找回身份，复用 `email_codes` 表（`purpose='reset'`）与品牌邮件模板（`renderResetEmail`）。发码接口（`forgot-send`）对未注册/未验证邮箱一律返回相同的成功文案，避免账户枚举；重置接口（`forgot-reset`）未知邮箱统一报「验证码错误或已过期」。重置通过 `hashPassword` 更新哈希并调用 `createSession` 轮换会话——旧 token 立即失效，被盗会话一并登出。**未绑定或未验证邮箱的账号无法通过此途径找回**。
 - **响应式边距（前端一致性）**：账号中心、登录、设置密码等所有含页面骨架的页面统一断点和间距规范，新增页面务必遵守：`.navbar-inner 0 24px / main 36 24 60 / card 24px / footer 14 24px`（桌面）→ `@media (max-width: 640px) navbar-inner 0 12 / main 20 12 32 / card 14px / footer 12 12px`（手机），避免不同页面松紧不一。
 
 ---

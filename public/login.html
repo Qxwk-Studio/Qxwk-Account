@@ -204,6 +204,13 @@
     font-weight: 600;
   }
 
+  /* ========= 忘记密码 ========= */
+  .forgot-link { margin-top: 12px; text-align: center; }
+  .forgot-link a { color: var(--primary); font-size: 0.85rem; text-decoration: none; font-weight: 500; }
+  .forgot-link a:hover { text-decoration: underline; }
+  .forgot-link.back { margin-top: 16px; }
+  .code-row { margin-top: 2px; }
+
   /* ========= Form ========= */
   label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
   input {
@@ -375,9 +382,10 @@
       </div>
 
       <form id="loginForm" onsubmit="return doLogin(event)">
-        <div class="field"><label>昵称</label><input id="loginNick" maxlength="20" placeholder="你的昵称" required></div>
+        <div class="field"><label>昵称 / 邮箱</label><input id="loginNick" maxlength="100" placeholder="昵称或已绑定的邮箱" required></div>
         <div class="field"><label>密码</label><input id="loginPass" type="password" maxlength="50" placeholder="密码" required></div>
         <button class="btn btn-primary" type="submit" id="loginBtn">登录</button>
+        <div class="forgot-link"><a href="#" onclick="showForgot();return false;">忘记密码？</a></div>
         <div class="msg" id="loginMsg"></div>
       </form>
 
@@ -397,6 +405,24 @@
         <div class="field"><label>确认新密码</label><input id="setPassNew2" type="password" maxlength="50" placeholder="再输入一次" required></div>
         <button class="btn btn-primary" type="submit" id="setPassBtn">设置密码并登录</button>
         <div class="msg" id="setPassMsg"></div>
+      </form>
+
+      <form id="forgotForm" style="display:none;" onsubmit="return doForgotReset(event)">
+        <div class="field">
+          <label>绑定邮箱</label>
+          <input id="forgotEmail" type="email" maxlength="100" placeholder="你已绑定并验证的邮箱" required>
+        </div>
+        <div class="field">
+          <button type="button" class="btn btn-primary" id="forgotSendBtn" onclick="sendForgotCode()">发送验证码到该邮箱</button>
+        </div>
+        <div class="code-row" id="forgotCodeRow" style="display:none;">
+          <div class="field"><label>验证码</label><input id="forgotCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码"></div>
+        </div>
+        <div class="field"><label>新密码</label><input id="forgotNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
+        <div class="field"><label>确认新密码</label><input id="forgotNew2" type="password" maxlength="50" placeholder="再输入一次" required></div>
+        <button class="btn btn-primary" type="submit" id="forgotBtn">重置密码并登录</button>
+        <div class="forgot-link back"><a href="#" onclick="backToLogin();return false;">← 返回登录</a></div>
+        <div class="msg" id="forgotMsg"></div>
       </form>
     </div>
   </div>
@@ -512,9 +538,9 @@ async function doLogin(e) {
         client_id: (ssoInfo && ssoInfo.ok) ? ssoInfo.appId : null,
       }),
     });
-    // 账号密码哈希为空：要求设置密码（切换到设密码表单）
+    // 账号密码哈希为空：要求设置密码（切换到设密码表单，昵称以后端返回的真实昵称为准）
     if (data && data.need_set_password) {
-      showSetPassForm(document.getElementById('loginNick').value.trim());
+      showSetPassForm(data.identity || document.getElementById('loginNick').value.trim());
       return false;
     }
     msg.className = 'msg ok';
@@ -589,6 +615,100 @@ async function doSetPassword(e) {
     });
     msg.className = 'msg ok';
     msg.textContent = '密码设置成功，正在进入…';
+    applySession(data);
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  return false;
+}
+
+/* ---------- 忘记密码 ---------- */
+
+/* 进入「忘记密码」视图：隐藏 tabs + 其他表单，显示忘记密码表单 */
+function showForgot() {
+  resetAuthView();
+  document.getElementById('forgotForm').style.display = '';
+  document.getElementById('authTitle').textContent = '🔑 忘记密码';
+  document.getElementById('authSubtitle').textContent = '通过你已绑定并验证的邮箱重置密码';
+  document.getElementById('forgotEmail').focus();
+}
+
+/* 返回登录视图 */
+function backToLogin() {
+  resetAuthView();
+  currentAuthMode = 'login';
+  document.querySelector('.tabs').style.display = '';
+  document.getElementById('tabLogin').classList.add('active');
+  document.getElementById('tabReg').classList.remove('active');
+  document.getElementById('loginForm').style.display = '';
+  document.getElementById('authTitle').textContent = '👋 欢迎回来';
+  document.getElementById('authSubtitle').textContent = '使用 Qxwk 通行证登录，一处登录，通行各站';
+}
+
+/* 统一重置：隐藏 tabs 与所有表单（登录/注册/设密码/忘记密码） */
+function resetAuthView() {
+  document.querySelector('.tabs').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('regForm').style.display = 'none';
+  document.getElementById('setPassForm').style.display = 'none';
+  document.getElementById('forgotForm').style.display = 'none';
+}
+
+/* 发送重置验证码：成功后显示验证码输入行 + 倒计时 */
+async function sendForgotCode() {
+  var msg = document.getElementById('forgotMsg');
+  var btn = document.getElementById('forgotSendBtn');
+  var email = document.getElementById('forgotEmail').value.trim();
+  msg.className = 'msg error';
+  msg.textContent = '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
+  btn.disabled = true;
+  msg.textContent = '发送中…';
+  try {
+    var data = await api('/forgot-send', { method: 'POST', body: JSON.stringify({ email }) });
+    msg.className = 'msg ok';
+    msg.textContent = (data && data.msg) || '发送成功，请查收';
+    document.getElementById('forgotCodeRow').style.display = '';
+    forgotCountdown(btn);
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+}
+
+/* 发码按钮 60 秒倒计时 */
+function forgotCountdown(btn) {
+  var left = 60;
+  btn.textContent = left + 's 后重发';
+  var timer = setInterval(function () {
+    left--;
+    if (left <= 0) {
+      clearInterval(timer);
+      btn.disabled = false;
+      btn.textContent = '重新发送验证码';
+    } else {
+      btn.textContent = left + 's 后重发';
+    }
+  }, 1000);
+}
+
+/* 提交重置：校验验证码与新密码，成功后等同登录 */
+async function doForgotReset(e) {
+  e.preventDefault();
+  var msg = document.getElementById('forgotMsg');
+  var btn = document.getElementById('forgotBtn');
+  msg.className = 'msg error';
+  var email = document.getElementById('forgotEmail').value.trim();
+  var code = document.getElementById('forgotCode').value.trim();
+  var p1 = document.getElementById('forgotNew').value;
+  var p2 = document.getElementById('forgotNew2').value;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
+  if (!code) { msg.textContent = '请输入验证码'; return; }
+  if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; return; }
+  btn.disabled = true;
+  msg.textContent = '重置中…';
+  try {
+    var data = await api('/forgot-reset', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, new_password: p1, new_password_confirm: p2 }),
+    });
+    msg.className = 'msg ok';
+    msg.textContent = '密码已重置，正在登录…';
     applySession(data);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
