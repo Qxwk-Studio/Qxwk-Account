@@ -1216,7 +1216,8 @@ if (getSession()) {
       if (data && data.created_at) {
         var s = String(data.created_at);
         var d = new Date(s.replace(' ', 'T'));
-        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10) : d.toLocaleDateString('zh-CN');
+        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10)
+          : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
       }
       // 同步本地会话的 avatar（邮箱变更后 avatar 会更新；老用户本地无此字段时补齐）
       var local = getSession();

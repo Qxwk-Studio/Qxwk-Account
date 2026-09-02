@@ -301,7 +301,7 @@ export function renderBrandEmail({
   intro = '',
   code = '',
   validity = '<b>10 分钟</b> 内有效，过期需重新获取。',
-  warn = '若非本人操作，请忽略本邮件，并不要将验证码告知任何人。',
+  warn = '若非本人操作，请忽略本邮件并不要告知他人验证码。',
 } = {}) {
   return `<div style="background:#f1f5f9;margin:0;padding:32px 16px;font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;color:#0f172a;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -353,6 +353,5 @@ export function renderResetEmail(code) {
     title: '重置密码',
     intro: '你好，我们收到了你的密码重置申请。请在页面输入下方验证码，并设置你的新密码：',
     code,
-    warn: '若非本人操作，请忽略本邮件并不要告知他人验证码。',
   });
 }
