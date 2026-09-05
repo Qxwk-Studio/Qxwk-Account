@@ -8,13 +8,11 @@ import {
   USER_COLORS,
 } from './lib.js';
 
-// ---------- CORS（白名单回显，供各站跨域验证 token） ----------
-// 对带 Origin 的请求查 apps 表白名单：命中才回显 Access-Control-Allow-Origin
-async function corsHeaders(env, request, res) {
+// ---------- CORS（全面放行：任意 Origin 都可跨域调用，鉴权靠 Bearer token） ----------
+// 对带 Origin 的请求回显 Access-Control-Allow-Origin（不再查 apps 白名单；来源由登录日志记录）
+async function corsHeaders(request, res) {
   const origin = request.headers.get('Origin');
   if (!origin) return res; // 同源/无浏览器上下文
-  const hit = await env.DB.prepare('SELECT 1 FROM apps WHERE origin = ?').bind(origin).first();
-  if (!hit) return res;    // 未注册域不加头，浏览器天然拦截
   const h = new Headers(res.headers);
   h.set('Access-Control-Allow-Origin', origin);
   h.set('Vary', 'Origin');
@@ -25,17 +23,18 @@ async function corsHeaders(env, request, res) {
 
 // 校验 SSO 回调 redirect：必须是合法 http/https URL
 // 不再强制 apps 白名单：未登记的站点也允许回跳，仅记录日志（appId=null，origin 记入 source_origin）
+// 合法 URL 返回 { registered, appId?, appName, ... }；非法返回 { registered: false, reason }
 async function getSsoInfo(DB, redirect) {
   let url;
-  try { url = new URL(redirect); } catch { return { ok: false, reason: 'redirect 不是合法 URL' }; }
+  try { url = new URL(redirect); } catch { return { registered: false, reason: 'redirect 不是合法 URL' }; }
   if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
-    return { ok: false, reason: '仅支持 http/https 链接' };
+    return { registered: false, reason: '仅支持 http/https 链接' };
   }
   const base = url.origin + url.pathname;
   const app = await DB.prepare('SELECT id, name, homepage FROM apps WHERE origin = ?')
     .bind(url.origin).first();
-  if (!app) return { ok: true, appId: null, appName: url.origin, appHomepage: url.origin, base, registered: false };
-  return { ok: true, appId: app.id, appName: app.name, appHomepage: app.homepage, base, registered: true };
+  if (!app) return { registered: false, appName: url.origin, appHomepage: url.origin, base };
+  return { registered: true, appId: app.id, appName: app.name, appHomepage: app.homepage, base };
 }
 
 // 生成一次性邀请码：8 位，去易混淆字符（I/O/0/1），32 字符表可整除 256 → 无偏
@@ -439,12 +438,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // CORS 预检（OPTIONS）
+    // CORS 预检（OPTIONS）：全面放行，任意 Origin 直接回显放行头
     if (request.method === 'OPTIONS') {
       const origin = request.headers.get('Origin');
       if (!origin) return new Response(null, { status: 403 });
-      const hit = await env.DB.prepare('SELECT 1 FROM apps WHERE origin = ?').bind(origin).first();
-      if (!hit) return new Response(null, { status: 403 });
       return new Response(null, {
         status: 204,
         headers: {
@@ -460,11 +457,11 @@ export default {
     // API 路由
     if (url.pathname.startsWith('/api/')) {
       const result = await handleApi(request, env);
-      return corsHeaders(env, request, result || json({ error: '接口不存在' }, 404));
+      return corsHeaders(request, result || json({ error: '接口不存在' }, 404));
     }
 
     // 其余：静态资源（public/），并同步 CORS 头
     const res = await env.ASSETS.fetch(request);
-    return corsHeaders(env, request, res);
+    return corsHeaders(request, res);
   },
 };

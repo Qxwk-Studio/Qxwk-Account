@@ -474,9 +474,10 @@ function validateRedirect(raw) {
 }
 
 /* 弹窗模式回传：向 redirect 的 origin postMessage 发送 token，然后自动关窗。
-   targetOrigin 用 redirect 的 origin（协议已由 /api/sso/info 校验；未登记站点同样放行，仅记录日志）。 */
+   不强制校验来源站（未登记站点同样回传，来源仅由后端登录日志记录）；
+   仅要求 redirect 是合法 http(s) 链接，targetOrigin 用其 origin。 */
 function deliverToken(data) {
-  if (!isPopup || !(ssoInfo && ssoInfo.ok) || !redirect || !window.opener) return false;
+  if (!isPopup || !redirect || !window.opener || !validateRedirect(redirect)) return false;
   try {
     window.opener.postMessage({
       type: 'qxwk-sso',
@@ -513,40 +514,51 @@ async function checkSso() {
     setSsoBanner(isPopup
       ? '⚠️ 来源链接不合法，无法以弹窗方式登录 ' + closeBtn
       : '⚠️ 来源链接不合法', 'warn');
-    ssoInfo = { ok: false };
+    ssoInfo = null;
     return;
   }
   try {
     var info = await api('/sso/info?redirect=' + encodeURIComponent(redirect));
-    if (info.ok) {
-      // 弹窗模式：登录后自动关窗回传；非弹窗模式仅展示来源（旧整页跳转已移除）
+    if (info && info.appName) {
+      // 合法来源（已登记/未登记均返回 appName）：弹窗模式自动关窗回传；非弹窗整页回跳
       setSsoBanner(isPopup
         ? '登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>（窗口将自动关闭）'
-        : '来源站点：<b>' + escapeHtml(info.appName) + '</b>');
+        : '登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>');
       ssoInfo = info;
     } else {
+      // 非法来源兜底提示（前端已先校验协议，正常不会走到这里）；不阻止登录与回跳，仅记录
       setSsoBanner('⚠️ ' + escapeHtml(info.reason || '来源链接不可用') + (isPopup
-        ? '，无法以弹窗方式登录 ' + closeBtn
-        : '，无法登录'), 'warn');
-      ssoInfo = { ok: false };
+        ? '，登录后仍会回传结果 ' + closeBtn
+        : '，登录后仍会尝试自动返回'), 'warn');
+      ssoInfo = info;
     }
   } catch (e) {
     setSsoBanner(isPopup
-      ? '⚠️ 暂时无法校验来源站点，无法以弹窗方式登录 ' + closeBtn
-      : '⚠️ 暂时无法校验来源站点', 'warn');
-    ssoInfo = { ok: false };
+      ? '⚠️ 暂时无法校验来源站点，登录后仍会回传结果 ' + closeBtn
+      : '⚠️ 暂时无法校验来源站点，登录后仍会尝试自动返回', 'warn');
+    ssoInfo = null;
   }
 }
 
-/* 登录/注册成功后的统一结尾：存会话 + 弹窗模式回传关窗，否则进入账号中心（旧整页跳转已移除） */
+/* 整页回跳：把 token 追加到来源站 URL（落地页会立即清理 URL 中的 token） */
+function redirectWithToken(url, token) {
+  return url + (url.indexOf('?') > -1 ? '&' : '?') + 'token=' + encodeURIComponent(token);
+}
+
+/* 登录/注册成功后的统一结尾：存会话 + 弹窗模式回传关窗；
+   非弹窗且来源链接合法（http/https）则整页回跳（手机端等无法用弹窗回传），否则进入账号中心 */
 function applySession(data) {
   saveSession(data);
   if (deliverToken(data)) return; // 弹窗模式：已回传并关窗
   if (isPopup) return; // 弹窗模式但未满足回传条件：留在弹窗内（上方已有提示，用户可手动关闭）
+  if (redirect && validateRedirect(redirect)) {
+    location.href = redirectWithToken(redirect, data.token); // 整页回跳完成落地
+    return;
+  }
   location.href = 'account.html';
 }
 
-/* 已登录自动跳转：弹窗模式直接回传关窗；非弹窗一律进入账号中心（旧整页跳转已移除） */
+/* 已登录自动跳转：弹窗模式直接回传关窗；非弹窗按来源站整页回跳，无来源站则进入账号中心 */
 async function autoRedirect() {
   var token = localStorage.getItem(LS_TOKEN);
   if (!token) return;
@@ -555,6 +567,10 @@ async function autoRedirect() {
     if (isPopup) {
       // 弹窗模式：满足条件即回传关窗；不满足则保留登录表单（不跳到 account.html）
       if (deliverToken({ token: token, userId: me.userId, nickname: me.nickname })) return;
+      return;
+    }
+    if (redirect && validateRedirect(redirect)) {
+      location.href = redirectWithToken(redirect, token); // 已登录 + 来源链接合法：整页回跳完成落地
       return;
     }
     location.href = 'account.html';
@@ -574,8 +590,8 @@ async function doLogin(e) {
       body: JSON.stringify({
         nickname: document.getElementById('loginNick').value.trim(),
         password: document.getElementById('loginPass').value,
-        client_id: (ssoInfo && ssoInfo.ok) ? ssoInfo.appId : null,
-        sso_origin: (ssoInfo && ssoInfo.ok && redirect) ? new URL(redirect).origin : null,
+        client_id: (ssoInfo && ssoInfo.appId) ? ssoInfo.appId : null,
+        sso_origin: (redirect && validateRedirect(redirect)) ? new URL(redirect).origin : null,
       }),
     });
     // 账号密码哈希为空：要求设置密码（切换到设密码表单，昵称以后端返回的真实昵称为准）
@@ -651,7 +667,7 @@ async function doSetPassword(e) {
       body: JSON.stringify({
         nickname: document.getElementById('setPassNick').value.trim(),
         new_password: p1,
-        sso_origin: (ssoInfo && ssoInfo.ok && redirect) ? new URL(redirect).origin : null,
+        sso_origin: (redirect && validateRedirect(redirect)) ? new URL(redirect).origin : null,
       }),
     });
     msg.className = 'msg ok';
