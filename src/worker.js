@@ -23,19 +23,19 @@ async function corsHeaders(env, request, res) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
-// 校验 SSO 回调 redirect：必须是合法 http/https URL，且 origin 命中 apps 白名单
-// 未命中也返回 200（前端按「未接入警告」处理，不自动跳转），拒绝才算错
+// 校验 SSO 回调 redirect：必须是合法 http/https URL
+// 不再强制 apps 白名单：未登记的站点也允许回跳，仅记录日志（appId=null，origin 记入 source_origin）
 async function getSsoInfo(DB, redirect) {
   let url;
   try { url = new URL(redirect); } catch { return { ok: false, reason: 'redirect 不是合法 URL' }; }
   if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
     return { ok: false, reason: '仅支持 http/https 链接' };
   }
+  const base = url.origin + url.pathname;
   const app = await DB.prepare('SELECT id, name, homepage FROM apps WHERE origin = ?')
     .bind(url.origin).first();
-  if (!app) return { ok: false, reason: '该站点未接入 Qxwk 通行证' };
-  const base = url.origin + url.pathname;
-  return { ok: true, appId: app.id, appName: app.name, appHomepage: app.homepage, base };
+  if (!app) return { ok: true, appId: null, appName: url.origin, appHomepage: url.origin, base, registered: false };
+  return { ok: true, appId: app.id, appName: app.name, appHomepage: app.homepage, base, registered: true };
 }
 
 // 生成一次性邀请码：8 位，去易混淆字符（I/O/0/1），32 字符表可整除 256 → 无偏
@@ -160,9 +160,10 @@ async function handleApi(request, env) {
     if (!ok) return error('帐号或密码不正确', 401);
 
     const token = await createSession(DB, user.id);
-    // 登录来源日志（client_id 来自 SSO 流程）
-    await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)')
-      .bind(user.id, clientId).run();
+    // 登录来源日志（client_id 来自 SSO 流程；未登记站点 appId 为 null，origin 记入 source_origin）
+    const ssoOrigin = String(body.sso_origin || '').trim().slice(0, 200) || null;
+    await DB.prepare('INSERT INTO login_log (user_id, client_id, source_origin) VALUES (?, ?, ?)')
+      .bind(user.id, clientId, ssoOrigin).run();
     return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -180,8 +181,9 @@ async function handleApi(request, env) {
     const passwordHash = await hashPassword(newPassword);
     await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, user.id).run();
     const token = await createSession(DB, user.id);
-    await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)')
-      .bind(user.id, null).run();
+    const ssoOrigin = String(body.sso_origin || '').trim().slice(0, 200) || null;
+    await DB.prepare('INSERT INTO login_log (user_id, client_id, source_origin) VALUES (?, ?, ?)')
+      .bind(user.id, null, ssoOrigin).run();
     return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -421,7 +423,7 @@ async function handleApi(request, env) {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const logs = await DB.prepare(
-      `SELECT ll.created_at, a.name AS app_name, a.homepage
+      `SELECT ll.created_at, a.name AS app_name, a.homepage, ll.source_origin
        FROM login_log ll LEFT JOIN apps a ON ll.client_id = a.id
        WHERE ll.user_id = ? ORDER BY ll.id DESC LIMIT 5`
     ).bind(userId).all();

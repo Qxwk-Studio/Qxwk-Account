@@ -1,0 +1,9 @@
+# Qxwk 通行证 · 青翔未阔工作室
+# 公开页面可收录：根页 /（分流页）、登录 /login.html
+# 不收录：账号中心 /account.html、欢迎动画承载 /setup.html（需登录）、接口 /api/
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /account.html
+Disallow: /setup.html

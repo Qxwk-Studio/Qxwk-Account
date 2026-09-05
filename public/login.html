@@ -171,6 +171,20 @@
   }
   .sso-banner.ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
   .sso-banner.warn { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  /* 弹窗模式：banner 内的关闭窗口按钮 */
+  .sso-close {
+    margin-left: 10px;
+    padding: 2px 12px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .sso-close:hover { background: rgba(128, 128, 128, 0.12); }
 
   /* ========= Tabs ========= */
   .tabs {
@@ -451,6 +465,7 @@ function switchTab(mode) {
 
 /* ---------- SSO 回调 ---------- */
 var redirect = new URLSearchParams(location.search).get('redirect'); // 来源站回调目标
+var isPopup = new URLSearchParams(location.search).get('popup') === '1'; // 弹窗模式：登录后 postMessage 回传并自动关窗
 var ssoInfo = null; // /api/sso/info 校验结果；null=无 redirect
 
 function validateRedirect(raw) {
@@ -458,12 +473,20 @@ function validateRedirect(raw) {
   catch (e) { return false; }
 }
 
-function buildCallback(redirectStr, data) {
-  var u = new URL(redirectStr);
-  u.searchParams.set('token', data.token);
-  u.searchParams.set('uid', String(data.userId));
-  u.searchParams.set('nick', data.nickname);
-  return u.toString();
+/* 弹窗模式回传：向 redirect 的 origin postMessage 发送 token，然后自动关窗。
+   targetOrigin 用 redirect 的 origin（协议已由 /api/sso/info 校验；未登记站点同样放行，仅记录日志）。 */
+function deliverToken(data) {
+  if (!isPopup || !(ssoInfo && ssoInfo.ok) || !redirect || !window.opener) return false;
+  try {
+    window.opener.postMessage({
+      type: 'qxwk-sso',
+      token: data.token,
+      uid: String(data.userId),
+      nick: data.nickname,
+    }, new URL(redirect).origin);
+    window.close();
+    return true;
+  } catch (e) { return false; }
 }
 
 function escapeHtml(t) {
@@ -480,45 +503,61 @@ function setSsoBanner(html, kind) {
 }
 
 async function checkSso() {
-  if (!redirect) { ssoInfo = null; return; }
+  var closeBtn = '<button type="button" class="sso-close" onclick="window.close()">关闭窗口</button>';
+  if (!redirect) {
+    if (isPopup) setSsoBanner('⚠️ 弹窗登录缺少来源链接，无法回传登录结果 ' + closeBtn, 'warn');
+    ssoInfo = null;
+    return;
+  }
   if (!validateRedirect(redirect)) {
-    setSsoBanner('⚠️ 来源链接不合法，登录后将在本站继续', 'warn');
+    setSsoBanner(isPopup
+      ? '⚠️ 来源链接不合法，无法以弹窗方式登录 ' + closeBtn
+      : '⚠️ 来源链接不合法', 'warn');
     ssoInfo = { ok: false };
     return;
   }
   try {
     var info = await api('/sso/info?redirect=' + encodeURIComponent(redirect));
     if (info.ok) {
-      setSsoBanner('登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>');
+      // 弹窗模式：登录后自动关窗回传；非弹窗模式仅展示来源（旧整页跳转已移除）
+      setSsoBanner(isPopup
+        ? '登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>（窗口将自动关闭）'
+        : '来源站点：<b>' + escapeHtml(info.appName) + '</b>');
       ssoInfo = info;
     } else {
-      setSsoBanner('⚠️ ' + escapeHtml(info.reason || '该站点未接入通行证') + '，登录后将在本站继续', 'warn');
+      setSsoBanner('⚠️ ' + escapeHtml(info.reason || '来源链接不可用') + (isPopup
+        ? '，无法以弹窗方式登录 ' + closeBtn
+        : '，无法登录'), 'warn');
       ssoInfo = { ok: false };
     }
   } catch (e) {
-    setSsoBanner('⚠️ 暂时无法校验来源站点，登录后将在本站继续', 'warn');
+    setSsoBanner(isPopup
+      ? '⚠️ 暂时无法校验来源站点，无法以弹窗方式登录 ' + closeBtn
+      : '⚠️ 暂时无法校验来源站点', 'warn');
     ssoInfo = { ok: false };
   }
 }
 
-/* 登录/注册成功后的统一结尾：存会话 + 按 SSO 状态跳转 */
+/* 登录/注册成功后的统一结尾：存会话 + 弹窗模式回传关窗，否则进入账号中心（旧整页跳转已移除） */
 function applySession(data) {
   saveSession(data);
-  if (ssoInfo && ssoInfo.ok) location.href = buildCallback(redirect, data);
-  else location.href = 'account.html';
+  if (deliverToken(data)) return; // 弹窗模式：已回传并关窗
+  if (isPopup) return; // 弹窗模式但未满足回传条件：留在弹窗内（上方已有提示，用户可手动关闭）
+  location.href = 'account.html';
 }
 
-/* 已登录自动跳转：本地有 token 且 /api/me 有效 → 直接用当前 token 回来源站（一次登录处处通行） */
+/* 已登录自动跳转：弹窗模式直接回传关窗；非弹窗一律进入账号中心（旧整页跳转已移除） */
 async function autoRedirect() {
   var token = localStorage.getItem(LS_TOKEN);
   if (!token) return;
   try {
     var me = await api('/me');
-    if (redirect && ssoInfo && ssoInfo.ok) {
-      location.href = buildCallback(redirect, { token: token, userId: me.userId, nickname: me.nickname });
-    } else {
-      location.href = 'account.html';
+    if (isPopup) {
+      // 弹窗模式：满足条件即回传关窗；不满足则保留登录表单（不跳到 account.html）
+      if (deliverToken({ token: token, userId: me.userId, nickname: me.nickname })) return;
+      return;
     }
+    location.href = 'account.html';
   } catch (e) { /* token 失效：app.js 已清 session，继续展示登录表单 */ }
 }
 
@@ -536,6 +575,7 @@ async function doLogin(e) {
         nickname: document.getElementById('loginNick').value.trim(),
         password: document.getElementById('loginPass').value,
         client_id: (ssoInfo && ssoInfo.ok) ? ssoInfo.appId : null,
+        sso_origin: (ssoInfo && ssoInfo.ok && redirect) ? new URL(redirect).origin : null,
       }),
     });
     // 账号密码哈希为空：要求设置密码（切换到设密码表单，昵称以后端返回的真实昵称为准）
@@ -611,6 +651,7 @@ async function doSetPassword(e) {
       body: JSON.stringify({
         nickname: document.getElementById('setPassNick').value.trim(),
         new_password: p1,
+        sso_origin: (ssoInfo && ssoInfo.ok && redirect) ? new URL(redirect).origin : null,
       }),
     });
     msg.className = 'msg ok';

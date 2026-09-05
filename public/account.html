@@ -157,6 +157,27 @@
     margin-bottom: 28px;
   }
 
+  /* ========= 加载中：校验会话时的过渡界面 ========= */
+  .loading-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+  }
+  .loading-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   /* ========= 已登录：主内容区 ========= */
   .main { flex: 1; padding: 36px 24px 60px; }
   .container { max-width: var(--container); margin: 0 auto; }
@@ -658,8 +679,14 @@
   </div>
 </header>
 
+<!-- 加载中：默认显示，校验本地会话后切换（避免已登录用户先看到"未登录"界面） -->
+<div class="loading-view" id="loadingView">
+  <div class="loading-spinner"></div>
+  <p>正在加载账号信息…</p>
+</div>
+
 <!-- 未登录 -->
-<div id="authView">
+<div id="authView" style="display:none;">
   <div class="auth-left">
     <iframe src="setup.html" class="setup-frame" title="欢迎" loading="lazy"></iframe>
   </div>
@@ -831,7 +858,14 @@ function setAvatarFromUrl(el, avatarUrl, nickname, color) {
   el.appendChild(img);
 }
 
+// 展示未登录界面（无会话，或会话校验失败）
+function showAuthView() {
+  document.getElementById('loadingView').style.display = 'none';
+  document.getElementById('authView').style.display = '';
+}
+
 function enterUserView(avatarUrl) {
+  document.getElementById('loadingView').style.display = 'none';
   document.getElementById('authView').style.display = 'none';
   document.getElementById('mainContent').style.display = '';
   var s = getSession();
@@ -1185,8 +1219,10 @@ async function loadLoginLog() {
       return;
     }
     list.innerHTML = data.logs.map(function (log) {
-      var haveApp = log.app_name;
-      return '<div class="login-item"><span class="app ' + (haveApp ? '' : 'direct') + '"><span class="dot"></span>' + (haveApp ? escapeHtml(log.app_name) : '直接访问') + '</span><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
+      // 已登记站点显示站点名；未登记站点显示来源 origin（仅记录不阻止）；无来源显示直接访问
+      var label = log.app_name || log.source_origin || '直接访问';
+      var via = log.app_name ? '' : 'direct';
+      return '<div class="login-item"><span class="app ' + via + '"><span class="dot"></span>' + escapeHtml(label) + '</span><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
     }).join('');
   } catch (e) {
     list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
@@ -1209,7 +1245,7 @@ function fmtDateTime(v) {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
-// 每次访问时验证本地凭证
+// 每次访问时验证本地凭证：加载期间显示加载界面，校验完再决定进账号中心还是未登录界面
 if (getSession()) {
   api('/me')
     .then(function (data) {
@@ -1233,8 +1269,12 @@ if (getSession()) {
       if (inviteCard) inviteCard.style.display = '';
     })
     .catch(function () {
-      // token 失效：app.js 的 401 处理已清除本地会话并刷新回登录界面
+      // token 失效：app.js 的 401 处理已清除本地会话并跳登录页；其余失败回未登录界面
+      showAuthView();
     });
+} else {
+  // 无本地会话：直接展示未登录界面，无需请求
+  showAuthView();
 }
 </script>
 </body>

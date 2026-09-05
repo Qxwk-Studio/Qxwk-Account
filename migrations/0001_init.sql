@@ -1,6 +1,5 @@
 -- Qxwk-Account 通行证服务 · 初始建表（包含邮箱支持）
 -- 用户 / 会话 / 第三方应用注册表 / 登录来源日志 / 邮箱验证码 / 邀请码 / 系统设置
--- 由原 0002_email.sql 合并而来：邮箱验证码表 + users.email_verified 列 + 邮箱唯一索引一并内联
 
 -- 用户表（昵称 + PBKDF2 密码哈希，color 用于头像配色，email 用户资料）
 CREATE TABLE IF NOT EXISTS users (
@@ -31,11 +30,11 @@ CREATE TABLE IF NOT EXISTS apps (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- 登录来源日志：每笔带 client_id 的登录记一行（client_id NULL = 直连登录）
 CREATE TABLE IF NOT EXISTS login_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   client_id INTEGER,                    -- NULL = 直连登录（未经过具体站点）
+  source_origin TEXT,                   -- 来源 origin：未登记（未验证）站点的回调地址，仅记录不阻止
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (client_id) REFERENCES apps(id)
@@ -63,16 +62,6 @@ CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, purpose);
 -- 邮箱加唯一索引（避免一人占多邮箱 / 一邮箱绑多号）
 -- WHERE email IS NOT NULL：兼容现有「空串→null」逻辑，避免多行 NULL 冲突
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
-
--- 应用种子数据不硬编码进迁移（避免绑定域名）。
--- 部署后用以下 SQL 插入（见 README「接入新站点」）：
---   INSERT INTO apps (name, origin, homepage) VALUES
---     ('Qxwk 主页', 'https://qxwkstudio.top', 'https://qxwkstudio.top'),
---     ('City Footprint', 'https://travel.qxwkstudio.top', 'https://travel.qxwkstudio.top');
--- 本地联调另插：INSERT INTO apps (name, origin) VALUES ('本地测试', 'http://localhost:8788');
-
--- 用户资料说明：
--- - 昵称/颜色/邮箱均可改（昵称唯一，修改时校验冲突）
 
 -- 一次性注册邀请码表
 -- code 唯一；used_at 为空 = 未使用，注册成功后被标记为已使用（用后即焚）

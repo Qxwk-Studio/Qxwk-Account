@@ -5,9 +5,6 @@ const API_BASE = '/api';
 const LS_TOKEN = 'qxwp_token';
 const LS_USER = 'qxwp_user';
 
-// 跨域验证 token 用的通行证 API 基址（SSO 落地页从 URL 拿到 token 后调用）
-const PASS_BASE = 'https://account.qxwkstudio.top';
-
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const token = localStorage.getItem(LS_TOKEN);
@@ -45,15 +42,6 @@ function getSession() {
   }
 }
 
-// 拿到本地 token，跨域调用通行证验证（供其它接入站点使用）
-async function remoteVerify(token) {
-  const res = await fetch(PASS_BASE + '/api/me', {
-    headers: { 'Authorization': 'Bearer ' + token },
-  });
-  if (!res.ok) return null;
-  return res.json();
-}
-
 function logout() {
   // 后端撤销会话（幂等，失败也继续清本地）
   const token = localStorage.getItem(LS_TOKEN);
@@ -61,10 +49,4 @@ function logout() {
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_USER);
   window.location.href = 'login.html';
-}
-
-function fmtDate(d) {
-  if (!d) return '时间未知';
-  // '2026-08-25 12:00:00' → '2026-08-25'
-  return String(d).slice(0, 10);
 }
