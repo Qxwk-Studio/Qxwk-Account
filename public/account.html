@@ -504,6 +504,19 @@
   .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 6px; }
   .msg { font-size: 0.84rem; margin-top: 10px; }
 
+  /* ========= 登录弹层（内嵌 iframe） ========= */
+  .login-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .login-modal-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); cursor: pointer; }
+  .login-modal-dialog { position: relative; width: 100%; max-width: 420px; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
+  .login-modal-close { position: absolute; top: 10px; right: 12px; z-index: 5; width: 30px; height: 30px; border: none; border-radius: 50%; background: rgba(255, 255, 255, 0.75); color: var(--text-secondary); font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .login-modal-close:hover { background: var(--surface); color: var(--text-primary); }
+  #loginFrame { width: 100%; height: 560px; border: 0; display: block; }
+  @media (max-width: 640px) {
+    .login-modal { padding: 12px; align-items: flex-end; }
+    .login-modal-dialog { max-width: 100%; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+    #loginFrame { height: 72vh; }
+  }
+
   /* ========= 退出登录：大卡片 ========= */
   .card-logout {
     text-align: center;
@@ -694,7 +707,7 @@
     <div class="auth-form">
       <h2 class="auth-title">你还没有登录</h2>
       <p class="auth-subtitle">登录后才能查看你的通行证账号信息</p>
-      <a href="login.html" class="btn btn-primary">去登录 / 注册</a>
+      <button type="button" class="btn btn-primary" onclick="openLoginModal()">去登录 / 注册</button>
       <div class="msg" id="authMsg"></div>
     </div>
   </div>
@@ -834,6 +847,15 @@
   </div>
 </div>
 
+<!-- 登录弹层（内嵌 iframe，登录页以 embedded 模式回传 token） -->
+<div class="login-modal" id="loginModal" style="display:none;">
+  <div class="login-modal-backdrop" data-close="1"></div>
+  <div class="login-modal-dialog" role="dialog" aria-modal="true" aria-label="登录">
+    <button type="button" class="login-modal-close" onclick="closeLoginModal()" aria-label="关闭">✕</button>
+    <iframe id="loginFrame" src="" title="登录 Qxwk 通行证"></iframe>
+  </div>
+</div>
+
 <footer class="footer"><div class="footer-copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
 
 <script src="app.js"></script>
@@ -863,6 +885,56 @@ function showAuthView() {
   document.getElementById('loadingView').style.display = 'none';
   document.getElementById('authView').style.display = '';
 }
+
+/* ---------- 登录弹层（内嵌 iframe） ---------- */
+function openLoginModal() {
+  var frame = document.getElementById('loginFrame');
+  // redirect 传弹层宿主自身 URL：登录页用其 origin 作为回传 targetOrigin（同为通行证域，便于同源校验）
+  frame.src = 'login.html?redirect=' + encodeURIComponent(location.href) + '&embedded=1';
+  document.getElementById('loginModal').style.display = 'flex';
+}
+
+function closeLoginModal() {
+  document.getElementById('loginModal').style.display = 'none';
+  document.getElementById('loginFrame').src = ''; // 卸载 iframe，停止登录页运行
+}
+
+// 接收内嵌登录页回传的 token：仅接受通行证同源来源；用 /api/me 校验后进入账号中心
+window.addEventListener('message', function (e) {
+  if (!e.data || !e.origin) return;
+  if (e.origin !== window.location.origin) return; // 只信任通行证同源回传
+  if (e.data.type === 'qxwk-sso-cancel') { closeLoginModal(); return; } // 授权页点「否」/取消
+  if (e.data.type !== 'qxwk-sso' || !e.data.token) return;
+  var token = e.data.token;
+  closeLoginModal();
+  api('/me')
+    .then(function (data) {
+      saveSession({
+        token: token,
+        userId: data.userId,
+        nickname: data.nickname,
+        color: data.color,
+        avatar: data.avatar || null,
+      });
+      if (data.created_at) {
+        var s = String(data.created_at);
+        var d = new Date(s.replace(' ', 'T'));
+        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10)
+          : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+      }
+      enterUserView(data.avatar);
+      loadProfileForm();
+      loadLoginLog();
+      var inviteCard = document.getElementById('inviteCodeCard');
+      if (inviteCard) inviteCard.style.display = '';
+    })
+    .catch(function () { showAuthView(); }); // token 校验失败：回未登录界面
+});
+
+// 点击遮罩关闭弹层
+document.addEventListener('click', function (e) {
+  if (e.target.hasAttribute && e.target.hasAttribute('data-close')) closeLoginModal();
+});
 
 function enterUserView(avatarUrl) {
   document.getElementById('loadingView').style.display = 'none';

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="strict-origin">
+<title>授权确认 · Qxwk 通行证</title>
+<meta name="description" content="确认是否允许站点使用你的 Qxwk 通行证账号登录。">
+<link rel="icon" type="image/webp" href="/favicon.webp">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --secondary: #0d9488;
+    --surface: #ffffff;
+    --bg: #f8fafc;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --border: #e2e8f0;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ========= 主体：居中授权卡片 ========= */
+  .main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 24px 64px;
+  }
+  .container { width: 100%; max-width: 480px; }
+  .auth-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 30px 28px;
+  }
+  .auth-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  .auth-subtitle {
+    font-size: 0.92rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    min-height: 1.6em;
+  }
+  .auth-subtitle b { color: var(--primary); font-weight: 600; word-break: break-all; }
+
+  /* 来源站信息卡 */
+  .app-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    margin-top: 22px;
+  }
+  .app-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .app-icon img { width: 100%; height: 100%; object-fit: contain; }
+  .app-icon svg { width: 24px; height: 24px; color: var(--text-tertiary); }
+  .app-info { min-width: 0; }
+  .app-name { font-weight: 600; font-size: 0.98rem; line-height: 1.4; word-break: break-all; }
+  .app-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px; line-height: 1.5; word-break: break-all; }
+  .app-meta a { color: var(--primary); text-decoration: none; }
+  .app-meta a:hover { text-decoration: underline; }
+  .app-meta .verified { color: var(--secondary); font-weight: 500; }
+  .app-meta .unknown { color: #b45309; font-weight: 500; }
+
+  .note {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-top: 16px;
+  }
+  .note b { color: var(--text-primary); font-weight: 600; }
+
+  /* ========= 按钮 ========= */
+  .actions { display: flex; gap: 12px; margin-top: 24px; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+    border-radius: 40px;
+    padding: 12px 18px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: inherit;
+    flex: 1;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-hover), #0f766e);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1.5px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--bg); border-color: var(--text-tertiary); }
+  .btn:disabled { opacity: 0.6; cursor: wait; transform: none; box-shadow: none; }
+
+  /* ========= Responsive ========= */
+  @media (max-width: 640px) {
+    .main { padding: 28px 12px 40px; }
+    .auth-card { padding: 24px 18px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+<meta name="color-scheme" content="light dark">
+<script>
+/* 主题：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
+(function () {
+  var KEY = 'theme';
+  var root = document.documentElement;
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  function system() { return mq.matches ? 'dark' : 'light'; }
+  function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
+  function apply(t) { root.setAttribute('data-theme', t); }
+  function current() { return stored() || system(); }
+  apply(current());
+  if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+  else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
+  window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
+})();
+</script>
+<style>
+  /* ===== 黑夜模式 ===== */
+  :root { color-scheme: light; }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface: #1e293b; --bg: #0f172a;
+    --text-primary: #e2e8f0; --text-secondary: #94a3b8; --text-tertiary: #64748b;
+    --border: #334155;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4); --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5); --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  :root[data-theme="dark"] .btn-ghost { background: #334155; border-color: #475569; }
+  :root[data-theme="dark"] .btn-ghost:hover { background: #475569; }
+  :root[data-theme="dark"] .app-meta .verified { color: #34d399; }
+  :root[data-theme="dark"] .app-meta .unknown { color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<main class="main">
+  <div class="container">
+    <div class="auth-card">
+      <h2 class="auth-title">🔐 授权确认</h2>
+      <p class="auth-subtitle" id="question">正在验证来源站点…</p>
+
+      <div class="app-card" id="details" style="display:none;">
+        <span class="app-icon" id="appIcon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></svg>
+        </span>
+        <div class="app-info">
+          <div class="app-name" id="appName">…</div>
+          <div class="app-meta" id="appPublisher"></div>
+          <div class="app-meta">来源：<a id="appHomepage" href="#" target="_blank" rel="noopener">…</a></div>
+        </div>
+      </div>
+
+      <p class="note" id="note" style="display:none;">
+        将向该站点提供你的<b>昵称、专属颜色、头像等</b>，用于登录态展示。通行证不会向站点提供你的密码与邮箱，仅在你点击授权后生效。
+      </p>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="btnYes" onclick="authorize()">确定</button>
+        <button class="btn btn-ghost" id="btnNo" onclick="deny()">取消</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ---------- 授权确认页（SSO 前置） ----------
+   由接入站以内嵌弹层引入：authorize.html?redirect=<原站URL>&embedded=1
+   点击「是」：已登录→postMessage 回传 token 给父窗口；未登录→同 iframe 转 login.html（embedded）完成登录后再回传。
+   点击「否」：postMessage 通知父窗口关闭弹层 / 独立打开则返回原站。 */
+var LS_TOKEN = 'qxwp_token';
+var LS_USER = 'qxwp_user';
+
+var params = new URLSearchParams(location.search);
+var redirect = params.get('redirect');           // 回调 targetOrigin（同源宿主：index 中控，供 postMessage 回传）
+var site = params.get('site') || redirect;        // 展示用真实来源站（index 中控跨域时传入真实原站）
+var embedded = params.get('embedded') === '1';   // iframe 内嵌：授权后 postMessage 回传父窗口，由父窗口关闭弹层
+
+function $(id) { return document.getElementById(id); }
+
+function validateRedirect(raw) {
+  try { var u = new URL(raw); return u.protocol === 'http:' || u.protocol === 'https:'; }
+  catch (e) { return false; }
+}
+
+function escapeHtml(t) {
+  var d = document.createElement('div');
+  d.textContent = t || '';
+  return d.innerHTML;
+}
+
+/* 内嵌回传：向父窗口（原站/弹层宿主）postMessage 发送 token，targetOrigin 用 redirect 的 origin。
+   旧弹窗（window.opener + window.close）与整页 ?token= 方式已移除。 */
+function postToParent(data) {
+  if (!embedded || !redirect || !validateRedirect(redirect)) return false;
+  try {
+    window.parent.postMessage({
+      type: 'qxwk-sso',
+      token: data.token,
+      uid: String(data.userId),
+      nick: data.nickname,
+    }, new URL(redirect).origin);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* 授权已完成/已回传：展示完成态（父窗口收到 message 后关闭弹层） */
+function showDone() {
+  $('question').textContent = '✅ 已确认，登录已回传，请关闭本窗口';
+  $('details').style.display = 'none';
+  $('note').style.display = 'none';
+  $('btnYes').style.display = 'none';
+  $('btnNo').textContent = '完成';
+}
+
+/* 拒绝/取消：内嵌时通知父窗口关闭弹层 */
+function postCancel() {
+  if (!redirect || !validateRedirect(redirect)) return;
+  try { window.parent.postMessage({ type: 'qxwk-sso-cancel' }, new URL(redirect).origin); } catch (e) {}
+}
+
+/* 非法来源兜底：仅保留「否/关闭」 */
+function showError(msg) {
+  $('question').textContent = msg;
+  $('details').style.display = 'none';
+  $('note').style.display = 'none';
+  $('btnNo').textContent = '关闭';
+  $('btnYes').style.display = 'none';
+}
+
+/* 初始化：校验 redirect 并拉取 /api/sso/info 展示来源站信息 */
+async function init() {
+  if (!redirect || !validateRedirect(redirect)) { showError('来源链接无效，无法完成授权。'); return; }
+  // 展示用真实来源站：优先取 site（index 中控跨域时传入真实原站），缺省退化为 redirect
+  var display = (site && validateRedirect(site)) ? site : redirect;
+  var origin;
+  try { origin = new URL(display).origin; } catch (e) { showError('来源链接无效，无法完成授权。'); return; }
+
+  var info = null;
+  try {
+    var res = await fetch('/api/sso/info?redirect=' + encodeURIComponent(display));
+    info = await res.json();
+  } catch (e) { /* 后端不可达：用 origin 兜底展示 */ }
+
+  var appName = (info && info.appName) || origin;
+  var appHomepage = (info && info.appHomepage) || origin;
+  var registered = !!(info && info.registered);
+
+  $('question').innerHTML = '站点「<b>' + escapeHtml(appName) + '</b>」请求访问你的 Qxwk 通行证账号';
+  $('details').style.display = '';
+  $('note').style.display = '';
+  $('appName').textContent = appName;
+  $('appPublisher').innerHTML = registered
+    ? '<span class="verified">✓ 已验证的发布者：Qxwk 账号通行证</span>'
+    : '<span class="unknown">⚠ 未知发布者（未登记站点）</span>';
+  var link = $('appHomepage');
+  link.textContent = appHomepage;
+  link.href = appHomepage;
+
+  // 尝试加载来源站 favicon，失败则保留默认地球图标
+  var img = new Image();
+  img.alt = '';
+  img.onload = function () {
+    var icon = $('appIcon');
+    icon.innerHTML = '';
+    icon.appendChild(img);
+  };
+  img.src = 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(origin) + '&sz=64';
+}
+
+/* 是：已登录直接回传 token；未登录转登录页 */
+async function authorize() {
+  var yes = $('btnYes'), no = $('btnNo');
+  yes.disabled = true; no.disabled = true;
+  yes.innerHTML = '正在确认…';
+
+  var token = null;
+  try { token = localStorage.getItem(LS_TOKEN); } catch (e) {}
+  if (token) {
+    try {
+      var res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (res.status === 200) {
+        var me = await res.json();
+        if (postToParent({ token: token, userId: me.userId, nickname: me.nickname })) { showDone(); return; }
+        // 未内嵌（独立打开授权页等）：直接回到来源站，不做 token 落地（交由原站自行处理）
+        if (validateRedirect(redirect)) { location.href = redirect; return; }
+      }
+      // token 失效：清本地会话，继续走登录页
+      try { localStorage.removeItem(LS_TOKEN); localStorage.removeItem(LS_USER); } catch (e) {}
+    } catch (e) { /* 网络异常：继续走登录页 */ }
+  }
+
+  // 未登录：转登录页（内嵌时在同一 iframe 内导航到登录页，弹层保持不变）
+  var url = 'login.html?redirect=' + encodeURIComponent(redirect);
+  if (embedded) url += '&embedded=1';
+  location.href = url;
+}
+
+/* 否：内嵌时通知父窗口关闭弹层；独立打开则返回来源站 */
+function deny() {
+  if (embedded) { postCancel(); return; }
+  if (redirect && validateRedirect(redirect)) { location.href = redirect; return; }
+  if (history.length > 1) history.back();
+  else location.href = 'index.html';
+}
+
+init();
+</script>
+</body>
+</html>

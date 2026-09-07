@@ -5,21 +5,156 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="strict-origin">
 <title>Qxwk 通行证</title>
-<meta name="description" content="Qxwk 账号通行证 —— 青翔未阔工作室统一账号中心。请稍候，正在跳转…">
+<meta name="description" content="Qxwk 账号通行证 —— 青翔未阔工作室统一账号中心。">
 <link rel="icon" type="image/webp" href="/favicon.webp">
+<style>
+  :root { color-scheme: light; --bg:#f7f7f8; --surface:#ffffff; --text:#171717; --text-muted:#52525b; --border:rgba(23,23,23,.12); --brand:#4b3fe3; --brand-soft:#f2f7ff; --brand-text:#1a1759; }
+  :root[data-theme="dark"] { color-scheme: dark; --bg:#0f0f12; --surface:#17171b; --text:#e5e5e5; --text-muted:#a1a1aa; --border:rgba(229,229,229,.12); --brand:#6054f1; --brand-soft:#1a1759; --brand-text:#cfd8ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--text); font: 400 14px/20px system-ui, -apple-system, "PingFang SC", "Segoe UI", sans-serif; }
+  .card { width: 100%; max-width: 360px; margin: 24px; padding: 28px 24px; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .loading-spinner { width: 36px; height: 36px; margin: 0 auto; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--brand); animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  p { margin: 12px 0 0; color: var(--text-muted); }
+  /* 登录/授权弹层 */
+  .login-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .login-modal-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); cursor: pointer; }
+  .login-modal-dialog { position: relative; width: 100%; max-width: 420px; background: var(--surface); border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.25); overflow: hidden; }
+  .login-modal-close { position: absolute; top: 10px; right: 12px; z-index: 5; width: 30px; height: 30px; border: none; border-radius: 50%; background: rgba(255,255,255,.8); color: var(--text-muted); font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .login-modal-close:hover { background: var(--brand-soft); color: var(--brand); }
+  #loginFrame { width: 100%; height: 560px; border: 0; display: block; }
+  @media (max-width: 640px) {
+    .login-modal { padding: 12px; align-items: flex-end; }
+    .login-modal-dialog { max-width: 100%; border-radius: 12px 12px 0 0; }
+    #loginFrame { height: 74vh; }
+  }
+</style>
 </head>
 <body>
+  <div class="card">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <p>正在处理登录…</p>
+  </div>
+
+  <!-- 登录 / 授权弹层（内嵌 iframe，embedded 模式回传） -->
+  <div class="login-modal" id="loginModal" style="display:none;">
+    <div class="login-modal-backdrop" data-close="1"></div>
+    <div class="login-modal-dialog" role="dialog" aria-modal="true" aria-label="登录">
+      <button type="button" class="login-modal-close" data-close="1" aria-label="关闭">✕</button>
+      <iframe id="loginFrame" src="" title="Qxwk 通行证登录"></iframe>
+    </div>
+  </div>
+
 <script src="app.js"></script>
 <script>
-/* 根页分流：已登录 → 账号中心；未登录 → 登录页 */
+/* 根页接入：无 redirect 时按会话分流转 account/login；
+   带?redirect= 时以「弹层内置」方式接入——未登录弹登录页、已登录弹授权确认页，
+   完成回传后落到 redirect 目标（同原站不发 URL token，安全回传）。 */
 (function () {
-  var target = getSession() ? 'account.html' : 'login.html';
-  if (window.location.search) {
-    // 保留 SSO redirect 参数（如果存在）
-    var redirect = new URLSearchParams(window.location.search).get('redirect');
-    if (redirect) target = 'login.html?redirect=' + encodeURIComponent(redirect);
+  var redirect = new URLSearchParams(location.search).get('redirect');
+  // 原目的地（落地跳转用）；弹层回传的 targetOrigin 必须等于宿主（index 同源），跨源目标用本站 URL 代替
+  var dest = validRedirect(redirect) ? redirect : null;
+  var modalRedirect = (dest && new URL(dest).origin === location.origin)
+    ? dest
+    : (location.origin + location.pathname);
+
+  function validRedirect(raw) {
+    try { var u = new URL(raw); return u.protocol === 'http:' || u.protocol === 'https:'; }
+    catch (e) { return false; }
   }
-  window.location.replace(target);
+  function openLoginModal(src) {
+    document.getElementById('loginFrame').src = src;
+    document.getElementById('loginModal').style.display = 'flex';
+  }
+  function closeLoginModal() {
+    document.getElementById('loginModal').style.display = 'none';
+    document.getElementById('loginFrame').src = '';
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute('data-close')) {
+      closeLoginModal();                       // 用户点 ✕ / 遮罩关闭弹层 = 取消登录/授权
+      location.replace(dest || 'account.html'); // 取消后回到原站（无来源则账号中心），避免卡在加载页
+    }
+  });
+
+  // 直接 fetch /api/me 校验（不走 api()：避免其 401 时整页跳转破坏模态流程）
+  async function check(token) {
+    var res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (res.status !== 200) throw new Error('unauthorized');
+    return await res.json();
+  }
+  // 校验 token 并存回本地会话；返回用户信息（校验失败返回 null）
+  async function persistSession(token) {
+    var me = null;
+    try {
+      me = await check(token);
+      saveSession({ token: token, userId: me.userId, nickname: me.nickname, color: me.color, avatar: me.avatar || null });
+    } catch (e) { /* 校验失败：不落地，直接回原站 */ }
+    return me;
+  }
+
+  // 收到 token 的处理器（登录页 / 授权页都会回传 qxwk-sso）：
+  //   - 刚完成登录（justLoggedIn）→ 拉起授权确认页，与已登录流程统一；
+  //   - 授权确认完成 → 跳回原站。
+  var justLoggedIn = false;
+  // 授权确认后回跳原站：跨域目标把 token 放入 URL 片段（片段不发服务器、不进访问日志），
+  // 由原站落地读取后即清除；同域目标直接跳（原站可读通行证本地会话，无需再传）。
+  function returnToDest(token) {
+    var target = dest || 'account.html';
+    try {
+      if (new URL(target).origin !== window.location.origin && token) {
+        target += '#_t=' + encodeURIComponent(token);
+      }
+    } catch (e) { /* 非绝对 URL（如相对 account.html）不加片段 */ }
+    location.replace(target);
+  }
+  async function onToken(token) {
+    if (!await persistSession(token)) { // 会话校验失败：无法继续，回原站（不带 token）
+      closeLoginModal();
+      location.replace(dest || 'account.html');
+      return;
+    }
+    if (justLoggedIn) {
+      justLoggedIn = false;
+      openLoginModal('authorize.html?redirect=' + encodeURIComponent(modalRedirect) + '&site=' + encodeURIComponent(dest) + '&embedded=1');
+    } else {
+      closeLoginModal();
+      returnToDest(token); // 授权确认完成 → 回跳原站（跨域经 URL 片段交付 token）
+    }
+  }
+
+  // 内嵌登录/授权页回传：token 成功 / 取消
+  window.addEventListener('message', function (e) {
+    if (!e.data || !e.origin) return;
+    if (e.origin !== window.location.origin) return; // 只认通行证同源
+    if (e.data.type === 'qxwk-sso-cancel') {
+      closeLoginModal();
+      location.replace(dest || 'account.html');
+      return;
+    }
+    if (e.data.type === 'qxwk-sso' && e.data.token) onToken(e.data.token);
+  });
+
+  (async function () {
+    var token = localStorage.getItem(LS_TOKEN);
+    var loggedIn = false;
+    if (token) { try { await check(token); loggedIn = true; } catch (e) { /* 失效 */ } }
+
+    if (!dest) {
+      // 无来源链接：保持根页分流（已登录→账号中心，未登录→登录页）
+      location.replace(loggedIn ? 'account.html' : 'login.html');
+      return;
+    }
+
+    // 有来源链接：以弹层内置接入。无论是登录还是授权，最终都经「授权确认 → 跳回原站」，
+    // 未登录先弹登录页，登录成功后再拉起授权确认页（与已登录行为一致）。
+    if (loggedIn) {
+      openLoginModal('authorize.html?redirect=' + encodeURIComponent(modalRedirect) + '&site=' + encodeURIComponent(dest) + '&embedded=1');
+    } else {
+      justLoggedIn = true;
+      openLoginModal('login.html?redirect=' + encodeURIComponent(modalRedirect) + '&embedded=1');
+    }
+  })();
 })();
 </script>
 </body>

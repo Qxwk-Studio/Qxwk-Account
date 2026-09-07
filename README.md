@@ -12,8 +12,8 @@
 - **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / 邮箱）+ 重置密码（折叠，无需原密码）+ 邀请码卡 + 最近登录来源 + 退出登录
 - **邮箱验证**：账号中心右侧「📧 邮箱验证」卡，填写左侧邮箱 → 发送验证码（Resend 发信）→ 输入验证码绑定；绑定后邮箱标记已验证
 - **头像**：**仅 `@qq.com`** 邮箱走 WeAvatar 头像（头像优先级：已绑定邮箱中有 `@qq.com` 且已验证）；邮箱 MD5 由 **后端集中计算**，所有接口统一返回 `avatar`（完整 WeAvatar URL），前端直接消费；无 QQ 邮箱或图片加载失败回退文字头像（昵称首字 + 专属颜色）
-- **SSO 登录（弹窗 + 整页双模式）**：电脑端来源站 `window.open` 弹小窗登录（`login.html?popup=1&redirect=<原站URL>`），成功后 `postMessage` 回传 token 并自动关窗，原页面不动；手机端弹窗回传不可靠，自动改用整页跳转登录、登录后带 token 回跳落地（详见「SSO 对接」）
-- **已登录免登录**：通行证域名下已有有效会话时，登录页自动回传当前 token（弹窗模式 postMessage 回传、整页模式带 token 回跳；一处登录、处处通行）
+- **SSO 登录（index 中控统一接入）**：统一通过通行证主页 `index.html?redirect=<原站URL>` 内嵌弹层完成——已登录弹授权确认页、未登录先弹登录页（登录成功后再拉起授权确认页），最终都经「授权确认 → 回跳原站」；token 经 `postMessage` 回传通行证中控后，**同域直接回跳、跨域经 URL 片段（`原站#_t=<token>`）交付原站（片段不发服务器、落地即清除）**；不整页跳转、不弹新窗，手机/微信同样适用、不受弹窗拦截器影响（详见「SSO 对接」）
+- **已登录免登录**：通行证域名下已有有效会话时，经 index 中控会直接拉起授权确认页，点「确定」即自动 `postMessage` 回传当前 token，无需重新输密码；一处登录、处处通行
 - **CORS 全面放行**：第三方站任意 Origin 均可跨域调用 `/api/me` 验证 token（鉴权靠 Bearer token，不再设白名单）
 
 ## 🧱 技术栈
@@ -34,8 +34,9 @@
 │   ├── worker.js           # /api/* 路由 + CORS 全面放行 + 静态资源回退
 │   └── lib.js              # PBKDF2 密码哈希 / 会话 / 颜色分配 / 邀请码生成 / MD5 + getAvatarUrl / sendEmail(Resend) + genEmailCode
 ├── public/
-│   ├── index.html          # 根页分流（有会话→账号中心，无→登录）
-│   ├── login.html          # 登录 + 注册 + SSO 回调（弹窗 postMessage / 整页带 token 回跳）+ 设置密码
+│   ├── index.html          # 根页分流 + SSO 中控（?redirect= 时弹层统一分流：登录→授权→回跳原站）
+│   ├── authorize.html      # SSO 授权确认页（Windows UAC 样式）：显示来源站信息；授权确认后 postMessage 回传中控（未登录先经登录页再拉起）
+│   ├── login.html          # 登录 + 注册 + SSO 回调（内嵌 embedded 模式：postMessage 回传给父窗口）+ 设置密码
 │   ├── account.html        # 账号中心（资料/修改/重置密码/邀请码/登录来源/退出）
 │   ├── setup.html          # 首次设置引导页
 │   ├── app.js              # API 客户端 + 会话管理（localStorage）
@@ -62,7 +63,7 @@
 | PUT | `/api/password` | Bearer | 重置密码：`{new_password}`（4-50 字符，无需原密码，保留当前会话） |
 | POST | `/api/logout` | Bearer | 退出登录：撤销当前会话 |
 | GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制） |
-| GET | `/api/sso/info?redirect=<url>` | 无 | 校验 redirect 合法性（仅 http/https，**不强制 apps 白名单**）；合法返回 `{registered, appId?, appName, appHomepage, base}`（已登记 registered=true 且带 appId，未登记 registered=false、无 appId、appName=origin），非法返回 `{registered:false, reason}`（仅供登录页提示，不阻止回跳） |
+| GET | `/api/sso/info?redirect=<url>` | 无 | 校验 redirect 合法性（仅 http/https，**不强制 apps 白名单**）；合法返回 `{registered, appId?, appName, appHomepage, base}`（已登记 registered=true 且带 appId，未登记 registered=false、无 appId、appName=origin），非法返回 `{registered:false, reason}`（供授权确认页与登录页展示来源，不阻止回跳） |
 | GET | `/api/login-log` | Bearer | 最近 5 条登录来源（已登记显示站点名，未登记显示来源 origin） |
 
 **跨站验证 token**（供原站使用）：`fetch('https://account.qxwkstudio.top/api/me', { headers: { Authorization: 'Bearer ' + token } })`。Worker 对任意 Origin 回显 CORS 头（全面放行，鉴权靠 token），任意站点均可直接跨域验证。
@@ -71,57 +72,64 @@
 
 ## 🔗 SSO 对接（供各站点接入）
 
-通行证登录回跳支持**弹窗 + 整页双模式**，由接入站按设备选择：
+通行证登录统一走**内嵌弹层单模式**：登录与授权都以 iframe 内嵌在通行证中控的弹层中，token 经 `postMessage` 回传通行证中控，返回原站时**同域不经 URL、跨域经 URL 片段（片段不发服务器、落地即清除）**；不新开窗口、不整页跳转，手机/微信体验一致，不受弹窗拦截器影响。
 
-- **电脑端（弹窗）**：`login.html?popup=1&redirect=<原站URL>`，登录后 `postMessage` 回传 token 并自动关窗，原页面不动
-- **手机端（整页）**：弹窗回传不可靠，接入站应跳转 `login.html?redirect=<原站URL>`（不带 `popup=1`），登录后整页带 `?token=` 回跳原站，由原站落地页读取并清理 URL 参数
+### index 中控（推荐）· 统一分流
 
-### 原站接入步骤
+把登录入口统一指向通行证主页 `https://account.qxwkstudio.top/?redirect=<原站URL>`（整页跳转或引导打开该地址均可）。主页在弹层内按登录态自动分流，最终都经「授权确认」后回跳 `<原站URL>`：
 
-1. （可选）在通行证 `apps` 表插入你的 `origin`：仅用于账号中心展示站点名（CORS 已全面放行，跨域验证 token 无需登记）。**未登记的站点也能正常完成登录回跳**，仅登录日志记录来源 origin（不阻止）。
-2. 页面加两段 JS（弹窗回传 + 整页落地；手机端自动走整页）：
+- **已登录**：直接弹「🔐 授权确认」→ 点「确定」→ 回跳原站
+- **未登录**：先弹登录页 → 登录成功后再弹「🔐 授权确认」→ 点「确定」→ 回跳原站
+
+无论登录与否都经过授权确认，多站点授权体验一致；token 不落查询串、不进服务器日志，跨域仅经 URL 片段交付、落地即清除。
 
 ```js
+/* 登录入口（推荐·index 中控）：整页跳转通行证主页，完成登录＋授权后回到本站 */
 function qxwkLogin() {
-  var redirect = location.origin + location.pathname;
-  var url = 'https://account.qxwkstudio.top/login.html?redirect=' + encodeURIComponent(redirect);
-  if (/(Android|iPhone|iPad|iPod|Mobile)/i.test(navigator.userAgent)) {
-    location.href = url; // 手机端：整页跳转，登录后带 token 回跳本页
-    return;
-  }
-  window.open(url + '&popup=1', 'qxwk_login', 'width=430,height=640,popup=1');
+  var redirect = location.origin + location.pathname;   // 回跳目标
+  location.href = 'https://account.qxwkstudio.top/?redirect=' + encodeURIComponent(redirect);
 }
-// ① 弹窗回传监听（电脑端）
-window.addEventListener('message', function (e) {
-  if (e.origin !== 'https://account.qxwkstudio.top') return; // 必做：只接受通行证域名的消息
-  var d = e.data || {};
-  if (d.type === 'qxwk-sso' && d.token) {
-    localStorage.setItem('qxwp_token', d.token);
-    // 可选：fetch('https://account.qxwkstudio.top/api/me', { headers: { Authorization: 'Bearer ' + d.token } }) 校验并取用户信息
-  }
-});
-// ② 整页回跳落地（手机端）：读取并立即清理 URL 中的 token
+```
+
+> 说明：授权确认后回跳原站——**同域目标**直接回跳（原站可读通行证本地会话）；**跨域目标**把 token 放入 URL 片段（`原站#_t=<token>`，片段不发服务器、不进访问日志）。原站在**落地页**读取片段存进本站会话后立即清除即可：
+
+```js
+/* 原站落地页：读取 URL 片段令牌，存本站会话后抹掉片段 */
 (function () {
-  var params = new URLSearchParams(location.search);
-  var t = params.get('token');
-  if (t) {
-    params.delete('token');
-    history.replaceState(null, '', location.pathname + params.toString());
-    localStorage.setItem('qxwp_token', t);
-    // 可选：fetch('https://account.qxwkstudio.top/api/me', ...) 校验并写本地用户缓存
+  var m = location.hash.match(/[#&]_t=([^&]+)/);
+  if (m) {
+    var t = decodeURIComponent(m[1]);
+    if (t) localStorage.setItem('qxwp_token', t);   // key 依原站会话存储自定
+    history.replaceState(null, '', location.pathname + location.search);
   }
 })();
 ```
 
-3. 后续每次请求用 `Authorization: Bearer <token>` 调用 `/api/me`，200 = 有效、401 = 需重新登录。
+### 授权确认页（UAC 样式）
+
+index 中控在授权阶段自动拉起授权确认页 `authorize.html`。该页经 `/api/sso/info` 拉取并展示来源站信息（名称、域名、登记状态）与「确定 / 取消」按钮：
+
+- **已登记站点**：显示「✓ 已验证的发布者：Qxwk 账号通行证」
+- **未登记站点**：显示「⚠ 未知发布者（未登记站点）」，仍可正常授权（仅记录来源日志，不阻止）
+
+点「确定」→ 回传 token 并回跳原站；点「取消」→ `postMessage`（`qxwk-sso-cancel`）通知父窗口关闭弹层并回原站。
 
 ### 安全与限制
 
 - `redirect` 仅接受 http/https URL（协议校验）。**不强制 apps 白名单**——未登记的站点也正常回传登录结果，仅在登录日志中记录其 origin（账号中心「最近登录来源」显示来源地址）。
 - `apps` 白名单仅用于账号中心展示站点名；`/api/me` 等接口 CORS 全面放行（鉴权靠 Bearer token），未登记站点也能直接跨域验证 token。
-- 通行证只向 `redirect` 的 origin 发送消息（弹窗模式）；来源站必须校验 `e.origin === 通行证域名`。
-- `window.open` 需在用户点击等手势内同步调用，避免被浏览器拦截。
-- token 传递：**弹窗模式**仅经 postMessage，不出现在 URL；**整页模式**（手机端/微信）token 短暂出现在 URL 中，落地页必须立即 `history.replaceState` 清理，避免分享链接泄露登录凭证。
+- 登录页只向 `redirect` 的 origin 发送消息（`window.parent.postMessage(..., new URL(redirect).origin)`）；**父窗口必须校验 `e.origin === 通行证域名`**，其余来源一律忽略。
+- 通行证静态资源不设 `X-Frame-Options` / CSP `frame-ancestors`，可直接被 iframe 内嵌；令牌经 `postMessage` 回传中控后，同域直达原站态、跨域仅经 URL **片段**（`#_t=`）交付——片段不发服务器、不进 Referer，落地即清除，无整页跳转、无查询串泄露风险。
+
+### 免登录回传
+
+在通行证域名已有有效会话时，经 index 中控进入的用户无需再输密码——**已登录**会直接拉起授权确认页，点「确定」即回传当前 token 并回跳原站；一处登录、处处通行。
+
+不做 SSO、仅在通行证自身登录也行（`account.html` 同样以内嵌弹层接入通行证登录）。
+
+> 提示：站点应将用户资料缓存到本地（如 localStorage），并在关键操作前调 `/api/me` 复核；`/api/me` 与 `/api/logout` 对任意 Origin 开放 CORS，可直接跨域调用。通行证账号多端共用，退出仅撤销**当前会话**，不影响其它站点/设备的登录态。
+
+> `apps` 表登记仅为在账号中心显示站点名，与是否可接入无关。
 
 ## ⚙️ 系统设置（settings 表）
 
@@ -146,7 +154,7 @@ npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET val
 - **头像 URL 集中计算**：WeAvatar 链接基于 `md5(lowercase(trim(email)))`。**只有 `@qq.com` 邮箱会生成头像 URL**（其它邮箱 `avatar=null`），且仅在邮箱绑定并验证后生效。为保持前后端口径一致、**避免多个项目重复维护 MD5 实现**，本项目后端（`src/lib.js`）保留唯一一份纯 JS MD5（blueimp-md5 v1.1.0 协议）并提供 `getAvatarUrl(email)` 工具函数。所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
 - **邮箱验证**：6 位验证码由 `crypto.getRandomValues` 生成；`email_codes` 表一码制（发新码即删该用户旧码），验证时用「用后即焚」原子 UPDATE（同时并发重放只成功一次）；码不存在/过期/已用统一报「验证码错误或已过期」防枚举；60 秒限发防刷；验证通过才写 `users.email_verified=1`。修改邮箱（含清空）会重置 `email_verified=0`，需重新验证。发信走 Resend，密钥经 `EMAIL_API_KEY` 注入（本地 `.dev.vars` / 线上 Secret），不落仓库。
 - **忘记密码**：以**已验证邮箱**为找回身份，复用 `email_codes` 表（`purpose='reset'`）与品牌邮件模板（`renderResetEmail`）。发码接口（`forgot-send`）对未注册/未验证邮箱一律返回相同的成功文案，避免账户枚举；重置接口（`forgot-reset`）未知邮箱统一报「验证码错误或已过期」。重置通过 `hashPassword` 更新哈希并调用 `createSession` 轮换会话——旧 token 立即失效，被盗会话一并登出。**未绑定或未验证邮箱的账号无法通过此途径找回**。
-- **SSO 回传（弹窗 + 整页双模式）**：弹窗模式登录结果只经 `postMessage` 发送给 `redirect` 的 origin（协议经 `/api/sso/info` 校验），不出现在 URL；整页模式（手机端/微信）登录后带 token 回跳，落地页立即清理 URL 参数。来源站必须校验消息来源为通行证域名。apps 白名单不再是回跳的必要条件——未登记站点照常回跳，仅日志记录来源（`login_log.source_origin`）。
+- **SSO 回传（index 中控 · 内嵌弹层单模式）**：统一入口为 `index.html?redirect=<原站URL>`，中控在弹层内分流——已登录拉起授权确认页 `authorize.html`，未登录先弹 `login.html`（登录成功后再拉起授权确认）。令牌经 `window.parent.postMessage` 回传中控（`redirect` 用同源宿主保证安全回传，展示用 `site` 参数标真实原站），确认后返回原站：**同域直达（原站可读通行证会话）、跨域经 URL 片段 `原站#_t=<token>` 交付**（片段不发服务器 / Referer，落地即清）。apps 白名单不再是回传的必要条件——未登记站点照常回传，仅日志记录来源（`login_log.source_origin`）。
 - **响应式边距（前端一致性）**：账号中心、登录、设置密码等所有含页面骨架的页面统一断点和间距规范，新增页面务必遵守：`.navbar-inner 0 24px / main 36 24 60 / card 24px / footer 14 24px`（桌面）→ `@media (max-width: 640px) navbar-inner 0 12 / main 20 12 32 / card 14px / footer 12 12px`（手机），避免不同页面松紧不一。
 
 ---
@@ -175,7 +183,7 @@ npx wrangler dev                                        # 默认 localhost:8787
 npx wrangler d1 execute qxwk-account --local --command "INSERT INTO apps (name, origin) VALUES ('本地测试', 'http://localhost:8788')"
 ```
 
-然后来源站页面用 `window.open('http://localhost:8787/login.html?popup=1&redirect=<白名单内URL>', ...)` 弹窗联调，登录后应 postMessage 回传 token 并自动关窗；手机端可改用整页 `location.href = 'http://localhost:8787/login.html?redirect=<URL>'` 联调带 token 回跳落地（接入方式见「SSO 对接」）。
+然后打开中控入口联调：`http://localhost:8787/?redirect=<合法站点URL>`（已登录直接弹授权确认、未登录先弹登录，确认后回跳该 URL；跨域会带 `#_t=<token>` 片段）。`account.html` 的「去登录 / 注册」即内置同款内嵌弹层，可直接点它验证整条流程。
 
 ## 🚀 部署指南
 

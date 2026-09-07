@@ -171,20 +171,6 @@
   }
   .sso-banner.ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
   .sso-banner.warn { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-  /* 弹窗模式：banner 内的关闭窗口按钮 */
-  .sso-close {
-    margin-left: 10px;
-    padding: 2px 12px;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    white-space: nowrap;
-    vertical-align: middle;
-  }
-  .sso-close:hover { background: rgba(128, 128, 128, 0.12); }
 
   /* ========= Tabs ========= */
   .tabs {
@@ -302,6 +288,14 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
+
+  /* ========= 内嵌弹层模式（embedded=1）：紧凑布局，只为弹层内的登录表单 ========= */
+  :root[data-embedded] .navbar { display: none; }
+  :root[data-embedded] .footer { display: none; }
+  :root[data-embedded] #authView { grid-template-columns: 1fr; grid-template-rows: none; }
+  :root[data-embedded] .auth-left { display: none; }
+  :root[data-embedded] .auth-right { align-items: flex-start; padding: 28px 22px; }
+  :root[data-embedded] .auth-form { max-width: 340px; }
 </style>
 <meta name="color-scheme" content="light dark">
 <script>
@@ -463,31 +457,44 @@ function switchTab(mode) {
     : '注册一个通行证账号，一处登录，通行各站';
 }
 
-/* ---------- SSO 回调 ---------- */
+/* ---------- SSO 回调（内嵌弹层模式） ---------- */
 var redirect = new URLSearchParams(location.search).get('redirect'); // 来源站回调目标
-var isPopup = new URLSearchParams(location.search).get('popup') === '1'; // 弹窗模式：登录后 postMessage 回传并自动关窗
+var embedded = new URLSearchParams(location.search).get('embedded') === '1'; // iframe 内嵌：登录后 postMessage 给父窗口，由父窗口关闭弹层
 var ssoInfo = null; // /api/sso/info 校验结果；null=无 redirect
+
+// 内嵌模式下隐藏顶栏/左侧动画/页脚，只保留表单，作紧凑弹层样式
+if (embedded) document.documentElement.setAttribute('data-embedded', '1');
 
 function validateRedirect(raw) {
   try { var u = new URL(raw); return u.protocol === 'http:' || u.protocol === 'https:'; }
   catch (e) { return false; }
 }
 
-/* 弹窗模式回传：向 redirect 的 origin postMessage 发送 token，然后自动关窗。
+/* 内嵌回传：向父窗口（原站/弹层宿主）postMessage 发送 token。targetOrigin 用 redirect 的 origin。
    不强制校验来源站（未登记站点同样回传，来源仅由后端登录日志记录）；
-   仅要求 redirect 是合法 http(s) 链接，targetOrigin 用其 origin。 */
-function deliverToken(data) {
-  if (!isPopup || !redirect || !window.opener || !validateRedirect(redirect)) return false;
+   仅要求 redirect 是合法 http(s) 链接。旧弹窗（window.opener + window.close）与整页 ?token= 方式已移除。 */
+function postToParent(data) {
+  if (!embedded || !redirect || !validateRedirect(redirect)) return false;
   try {
-    window.opener.postMessage({
+    window.parent.postMessage({
       type: 'qxwk-sso',
       token: data.token,
       uid: String(data.userId),
       nick: data.nickname,
     }, new URL(redirect).origin);
-    window.close();
     return true;
   } catch (e) { return false; }
+}
+
+/* 内嵌登录成功后展示成功态（父窗口收到 message 后关闭弹层） */
+function showEmbeddedDone() {
+  var tabs = document.querySelector('.tabs');
+  if (tabs) tabs.style.display = 'none';
+  document.querySelectorAll('form').forEach(function (f) { f.style.display = 'none'; });
+  document.getElementById('authTitle').textContent = '✅ 登录成功';
+  document.getElementById('authSubtitle').textContent = '已将登录回传，请关闭本窗口';
+  var sso = document.getElementById('ssoBanner');
+  if (sso) sso.style.display = 'none';
 }
 
 function escapeHtml(t) {
@@ -504,73 +511,45 @@ function setSsoBanner(html, kind) {
 }
 
 async function checkSso() {
-  var closeBtn = '<button type="button" class="sso-close" onclick="window.close()">关闭窗口</button>';
-  if (!redirect) {
-    if (isPopup) setSsoBanner('⚠️ 弹窗登录缺少来源链接，无法回传登录结果 ' + closeBtn, 'warn');
-    ssoInfo = null;
-    return;
-  }
+  if (!redirect) { ssoInfo = null; return; } // 无来源链接：通行证独立登录，不提示
   if (!validateRedirect(redirect)) {
-    setSsoBanner(isPopup
-      ? '⚠️ 来源链接不合法，无法以弹窗方式登录 ' + closeBtn
-      : '⚠️ 来源链接不合法', 'warn');
+    setSsoBanner('⚠️ 来源链接不合法，登录后可能无法回传结果', 'warn');
     ssoInfo = null;
     return;
   }
   try {
     var info = await api('/sso/info?redirect=' + encodeURIComponent(redirect));
     if (info && info.appName) {
-      // 合法来源（已登记/未登记均返回 appName）：弹窗模式自动关窗回传；非弹窗整页回跳
-      setSsoBanner(isPopup
-        ? '登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>（窗口将自动关闭）'
-        : '登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>');
+      // 合法来源（已登记/未登记均返回 appName）：内嵌模式登录后回传给父窗口，弹层由父窗口关闭
+      setSsoBanner('登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>');
       ssoInfo = info;
     } else {
-      // 非法来源兜底提示（前端已先校验协议，正常不会走到这里）；不阻止登录与回跳，仅记录
-      setSsoBanner('⚠️ ' + escapeHtml(info.reason || '来源链接不可用') + (isPopup
-        ? '，登录后仍会回传结果 ' + closeBtn
-        : '，登录后仍会尝试自动返回'), 'warn');
+      // 非法来源兜底提示（前端已先校验协议，正常不会走到这里）；不阻止登录与回传，仅记录
+      setSsoBanner('⚠️ ' + escapeHtml(info.reason || '来源链接不可用') + '，登录后仍会尝试回传', 'warn');
       ssoInfo = info;
     }
   } catch (e) {
-    setSsoBanner(isPopup
-      ? '⚠️ 暂时无法校验来源站点，登录后仍会回传结果 ' + closeBtn
-      : '⚠️ 暂时无法校验来源站点，登录后仍会尝试自动返回', 'warn');
+    setSsoBanner('⚠️ 暂时无法校验来源站点，登录后仍会尝试回传', 'warn');
     ssoInfo = null;
   }
 }
 
-/* 整页回跳：把 token 追加到来源站 URL（落地页会立即清理 URL 中的 token） */
-function redirectWithToken(url, token) {
-  return url + (url.indexOf('?') > -1 ? '&' : '?') + 'token=' + encodeURIComponent(token);
-}
-
-/* 登录/注册成功后的统一结尾：存会话 + 弹窗模式回传关窗；
-   非弹窗且来源链接合法（http/https）则整页回跳（手机端等无法用弹窗回传），否则进入账号中心 */
+/* 登录/注册/设密/重置成功后的统一结尾：存会话 + 内嵌模式回传父窗口（弹层由父窗口关闭）；
+   独立打开（未内嵌）时进入账号中心 */
 function applySession(data) {
   saveSession(data);
-  if (deliverToken(data)) return; // 弹窗模式：已回传并关窗
-  if (isPopup) return; // 弹窗模式但未满足回传条件：留在弹窗内（上方已有提示，用户可手动关闭）
-  if (redirect && validateRedirect(redirect)) {
-    location.href = redirectWithToken(redirect, data.token); // 整页回跳完成落地
-    return;
-  }
+  if (postToParent(data)) { showEmbeddedDone(); return; } // 内嵌模式：已回传，父窗口负责关闭
   location.href = 'account.html';
 }
 
-/* 已登录自动跳转：弹窗模式直接回传关窗；非弹窗按来源站整页回跳，无来源站则进入账号中心 */
+/* 已登录自动跳转：内嵌模式直接回传父窗口；独立打开进入账号中心 */
 async function autoRedirect() {
   var token = localStorage.getItem(LS_TOKEN);
   if (!token) return;
   try {
     var me = await api('/me');
-    if (isPopup) {
-      // 弹窗模式：满足条件即回传关窗；不满足则保留登录表单（不跳到 account.html）
-      if (deliverToken({ token: token, userId: me.userId, nickname: me.nickname })) return;
-      return;
-    }
-    if (redirect && validateRedirect(redirect)) {
-      location.href = redirectWithToken(redirect, token); // 已登录 + 来源链接合法：整页回跳完成落地
+    if (embedded) {
+      if (postToParent({ token: token, userId: me.userId, nickname: me.nickname })) showEmbeddedDone();
       return;
     }
     location.href = 'account.html';
