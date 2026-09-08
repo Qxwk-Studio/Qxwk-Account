@@ -27,9 +27,7 @@
 
 ```
 ├── migrations/
-│   ├── 0001_init.sql         # 建表：users(含email) / sessions / apps / login_log / invite_codes / settings(含3默认开关) / email_codes
-│   ├── 0002_email.sql        # email_codes 表 + users.email_verified 列
-│   └── 0003_login_log_origin.sql  # login_log.source_origin：记录未登记站点来源（仅记录不阻止）
+│   └── 0001_init.sql         # 建表：users(含email) / sessions / apps / login_log / invite_codes / settings(含3默认开关) / email_codes
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 全面放行 + 静态资源回退
 │   └── lib.js              # PBKDF2 密码哈希 / 会话 / 颜色分配 / 邀请码生成 / MD5 + getAvatarUrl / sendEmail(Resend) + genEmailCode
