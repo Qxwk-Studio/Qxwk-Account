@@ -152,7 +152,7 @@
       openLoginModal('authorize.html?redirect=' + encodeURIComponent(modalRedirect) + '&site=' + encodeURIComponent(dest) + '&embedded=1');
     } else {
       justLoggedIn = true;
-      openLoginModal('login.html?redirect=' + encodeURIComponent(modalRedirect) + '&embedded=1');
+      openLoginModal('login.html?redirect=' + encodeURIComponent(modalRedirect) + '&site=' + encodeURIComponent(dest) + '&embedded=1');
     }
   })();
 })();

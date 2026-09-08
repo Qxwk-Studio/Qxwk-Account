@@ -458,9 +458,10 @@ function switchTab(mode) {
 }
 
 /* ---------- SSO 回调（内嵌弹层模式） ---------- */
-var redirect = new URLSearchParams(location.search).get('redirect'); // 来源站回调目标
+var redirect = new URLSearchParams(location.search).get('redirect'); // 回传目标（index 中控传同源 URL；独立打开时为来源站）
 var embedded = new URLSearchParams(location.search).get('embedded') === '1'; // iframe 内嵌：登录后 postMessage 给父窗口，由父窗口关闭弹层
-var ssoInfo = null; // /api/sso/info 校验结果；null=无 redirect
+var site = new URLSearchParams(location.search).get('site'); // index 中控传入的真实来源站（redirect 为同源回传目标时，来源以 site 为准）
+var ssoInfo = null; // /api/sso/info 校验结果；null=无来源
 
 // 内嵌模式下隐藏顶栏/左侧动画/页脚，只保留表单，作紧凑弹层样式
 if (embedded) document.documentElement.setAttribute('data-embedded', '1');
@@ -469,6 +470,9 @@ function validateRedirect(raw) {
   try { var u = new URL(raw); return u.protocol === 'http:' || u.protocol === 'https:'; }
   catch (e) { return false; }
 }
+
+// 真实来源站：偏好 index 中控传来的 site；否则回退到 redirect（独立/旧内嵌场景来源即回调目标）
+var ssoRedirect = (site && validateRedirect(site)) ? site : redirect;
 
 /* 内嵌回传：向父窗口（原站/弹层宿主）postMessage 发送 token。targetOrigin 用 redirect 的 origin。
    不强制校验来源站（未登记站点同样回传，来源仅由后端登录日志记录）；
@@ -511,14 +515,14 @@ function setSsoBanner(html, kind) {
 }
 
 async function checkSso() {
-  if (!redirect) { ssoInfo = null; return; } // 无来源链接：通行证独立登录，不提示
-  if (!validateRedirect(redirect)) {
+  if (!ssoRedirect) { ssoInfo = null; return; } // 无来源链接：通行证独立登录，不提示
+  if (!validateRedirect(ssoRedirect)) {
     setSsoBanner('⚠️ 来源链接不合法，登录后可能无法回传结果', 'warn');
     ssoInfo = null;
     return;
   }
   try {
-    var info = await api('/sso/info?redirect=' + encodeURIComponent(redirect));
+    var info = await api('/sso/info?redirect=' + encodeURIComponent(ssoRedirect));
     if (info && info.appName) {
       // 合法来源（已登记/未登记均返回 appName）：内嵌模式登录后回传给父窗口，弹层由父窗口关闭
       setSsoBanner('登录后自动返回 <b>' + escapeHtml(info.appName) + '</b>');
@@ -570,7 +574,7 @@ async function doLogin(e) {
         nickname: document.getElementById('loginNick').value.trim(),
         password: document.getElementById('loginPass').value,
         client_id: (ssoInfo && ssoInfo.appId) ? ssoInfo.appId : null,
-        sso_origin: (redirect && validateRedirect(redirect)) ? new URL(redirect).origin : null,
+        sso_origin: (ssoRedirect && validateRedirect(ssoRedirect)) ? new URL(ssoRedirect).origin : null,
       }),
     });
     // 账号密码哈希为空：要求设置密码（切换到设密码表单，昵称以后端返回的真实昵称为准）
@@ -646,7 +650,7 @@ async function doSetPassword(e) {
       body: JSON.stringify({
         nickname: document.getElementById('setPassNick').value.trim(),
         new_password: p1,
-        sso_origin: (redirect && validateRedirect(redirect)) ? new URL(redirect).origin : null,
+        sso_origin: (ssoRedirect && validateRedirect(ssoRedirect)) ? new URL(ssoRedirect).origin : null,
       }),
     });
     msg.className = 'msg ok';
