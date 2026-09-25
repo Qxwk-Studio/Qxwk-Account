@@ -231,7 +231,12 @@ npx wrangler d1 migrations apply qxwk-account --remote
 npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (name, origin, homepage) VALUES ('City Footprint', 'https://travel.qxwkstudio.top', 'https://travel.qxwkstudio.top')"
 ```
 
-> 已有线上旧库：新增的**表**（如 `login_attempts`）重跑一次建库文件即可补建（`npx wrangler d1 execute qxwk-account --remote --file migrations/0001_init.sql`）；新增的**列**（`sessions.user_agent` / `last_seen_at` / `client_id`）`CREATE TABLE IF NOT EXISTS` 补不了，必须逐条 `ALTER TABLE sessions ADD COLUMN ...` 手工加。
+> 已有线上旧库：新增的**表**（如 `login_attempts`）重跑一次建库文件即可补建（`npx wrangler d1 execute qxwk-account --remote --file migrations/0001_init.sql`）；新增的**列**（`sessions.user_agent` / `last_seen_at` / `client_id` / `client_label`）`CREATE TABLE IF NOT EXISTS` 补不了，必须逐条 `ALTER TABLE sessions ADD COLUMN ...` 手工加。**注意 `wrangler d1 migrations apply` 也补不了列**：线上库不是用它建的（`migrations list --remote` 里 `0001_init.sql` 仍显示「待应用」），且该文件通篇 `IF NOT EXISTS`，跑一遍只是把它记成已应用、并不会给已存在的表加列。漏加 `client_label` 会让注册/登录直接 500。
+
+```bash
+# 已有线上旧库按需逐条执行（已存在的列会报 duplicate column name，忽略即可）
+npx wrangler d1 execute qxwk-account --remote --command "ALTER TABLE sessions ADD COLUMN client_label TEXT"
+```
 
 ### 4. 配置邮件服务（Resend）与 KEY
 

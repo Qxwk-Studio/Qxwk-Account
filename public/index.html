@@ -17,6 +17,10 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   p { margin: 12px 0 0; color: var(--text-muted); }
 </style>
+<!-- 主题脚本必须放在 head 里同步执行：index.html 要先调 /api/me 再跳转，中间有一段可见的加载态，
+     不在这里读 localStorage 定主题的话，深色模式用户会先看到一帧浅色闪屏（与 login/account/setup 一致） -->
+<meta name="color-scheme" content="light dark">
+<script src="theme.js"></script>
 </head>
 <body>
   <div class="card">
