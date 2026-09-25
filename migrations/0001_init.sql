@@ -12,16 +12,22 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- 会话表：token 直接落库，Bearer 鉴权；单会话/用户，重新登录轮换
+-- 会话表：token 直接落库，Bearer 鉴权
+-- 多会话模型：同一账号可在多台设备同时登录，各持独立 token，可逐个或一键下线（不再「重新登录轮换旧会话」）
+-- user_agent = 登录时的 UA 原始串（设备名由后端 describeDevice() 解析；NULL = 未知设备）
+-- last_seen_at = 最后活跃时间，鉴权请求时节流滚动更新（与上次相差 >1 小时才写库）；查询时用 COALESCE(last_seen_at, created_at) 回退
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
+  user_agent TEXT,
   created_at TEXT DEFAULT (datetime('now')),
+  last_seen_at TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -- 第三方应用注册表：SSO 回调 redirect 域名白名单（防 open-redirect）+ 来源站点展示
 -- 接入一个新站点 = INSERT 一行（name/origin/homepage），无需改代码
+-- 注：跨站 SSO 已下线，本表与其数据（含 login_log 的 client_id/source_origin）仅作历史存档保留，新代码不再写入
 CREATE TABLE IF NOT EXISTS apps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,                   -- 站点名：如 "City Footprint"

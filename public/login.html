@@ -520,7 +520,7 @@ function showSetPassForm(nick) {
   document.getElementById('setPassNew').focus();
 }
 
-/* 设置密码（账号哈希为空时首次设置）：成功后等同登录 */
+/* 设置密码（账号哈希为空时首次设置）：走 /api/login 并带上 new_password，后端判定空哈希账号后设密并签发会话 */
 async function doSetPassword(e) {
   e.preventDefault();
   var msg = document.getElementById('setPassMsg');
@@ -532,7 +532,7 @@ async function doSetPassword(e) {
   btn.disabled = true;
   msg.textContent = '设置中…';
   try {
-    var data = await api('/set-password', {
+    var data = await api('/login', {
       method: 'POST',
       body: JSON.stringify({
         nickname: document.getElementById('setPassNick').value.trim(),
@@ -589,7 +589,8 @@ async function sendForgotCode() {
   btn.disabled = true;
   msg.textContent = '发送中…';
   try {
-    var data = await api('/forgot-send', { method: 'POST', body: JSON.stringify({ email }) });
+    // purpose:'reset' = 找回密码场景（无需登录，服务端按邮箱发重置码）
+    var data = await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'reset' }) });
     msg.className = 'msg ok';
     msg.textContent = (data && data.msg) || '发送成功，请查收';
     document.getElementById('forgotCodeRow').style.display = '';
@@ -629,7 +630,8 @@ async function doForgotReset(e) {
   btn.disabled = true;
   msg.textContent = '重置中…';
   try {
-    var data = await api('/forgot-reset', {
+    // 带 new_password → 服务端按「重置密码」处理：核销重置码、改密、撤销全部旧会话并签发新会话
+    var data = await api('/email/verify', {
       method: 'POST',
       body: JSON.stringify({ email, code, new_password: p1, new_password_confirm: p2 }),
     });
