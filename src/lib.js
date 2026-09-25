@@ -65,15 +65,85 @@ function generateToken() {
   return toHex(randomBytes(32));
 }
 
+// token 落库前先做 SHA-256：库里只存哈希，D1 被 dump 也无法直接拿去冒用身份
+// 查询侧同样先哈希再按主键等值查，性能与原明文存储一致（仍是主键索引命中）；
+// 代价是不能再从库里肉眼读 token 调试，排查会话问题请用 rowid / user_id
+export async function hashToken(token) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token || '')));
+  return toHex(buf);
+}
+
+// 当前请求所用会话的「键」（即库中 token 列的值；未携带/无效 token 返回空串）。
+// 需要与自己会话做比对（标记 current）或排除（下线其他设备）时用它：
+// 不能只算一次 sha256——老明文会话要先经 resolveSession 迁移，迁移后的键才与库中一致
+export async function getSessionKey(DB, request) {
+  const token = getToken(request);
+  if (!token) return '';
+  const s = await resolveSession(DB, token);
+  return s ? s.key : '';
+}
+
+// 用原始 token 查会话行，返回 { key, userId, clientId, lastSeenAt }，未命中返回 null。
+// key 是「库中 token 列当前的值」，也是后续按行操作（更新活跃时间 / 删除）该用的键。
+//
+// 这里带一段**一次性兼容逻辑**：改为哈希存储之前签发的会话，token 列里躺的是明文，
+// 而新代码一律按 sha256 查，直接查哈希会让所有老会话（含用户自己当前这台设备）查不到、
+// 表现为「突然要重新登录」。所以哈希查询未命中时再按明文原值回查一次，命中即把该行就地
+// 迁移成哈希（UPDATE），此后就走正常主键命中路径。
+//
+// 为什么只对 64 位十六进制的输入做回查：老 token 由 generateToken（32 随机字节的 hex）产出，
+// 必然是这个形状；哈希也同形，所以这个条件不会漏掉老 token。等老行都迁移完，
+// 回查自然不再命中（多一次等值查询的代价只落在「确实不存在」的无效 token 上），无需专门安排下线时间。
+export async function resolveSession(DB, rawToken) {
+  const token = String(rawToken || '');
+  if (!token) return null;
+  const tokenHash = await hashToken(token);
+  const row = await DB.prepare('SELECT token, user_id, client_id, last_seen_at FROM sessions WHERE token = ?')
+    .bind(tokenHash).first();
+  if (row) return { key: tokenHash, userId: row.user_id, clientId: row.client_id, lastSeenAt: row.last_seen_at };
+  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  const legacy = await DB.prepare('SELECT user_id, client_id, last_seen_at FROM sessions WHERE token = ?')
+    .bind(token).first();
+  if (!legacy) return null;
+  await DB.prepare('UPDATE sessions SET token = ? WHERE token = ?').bind(tokenHash, token).run();
+  return { key: tokenHash, userId: legacy.user_id, clientId: legacy.client_id, lastSeenAt: legacy.last_seen_at };
+}
+
 // 创建会话：多会话模型——同一账号可在多台设备同时登录，各自持有独立 token
 // userAgent 存原始串（设备名由 describeDevice 在后端集中解析）；last_seen_at 初值取创建时间
+// clientId = 登录来源站点（apps.id），NULL 表示通行证直连登录；账号中心「已授权网站」卡按它聚合
 // 注意：这里不再删除该用户的历史会话（多会话是有意设计）；「重置密码后踢掉所有设备」场景请显式调用 revokeAllSessions
-export async function createSession(DB, userId, userAgent) {
+export async function createSession(DB, userId, userAgent, clientId = null) {
   const token = generateToken();
   await DB.prepare(
-    "INSERT INTO sessions (token, user_id, user_agent, last_seen_at) VALUES (?, ?, ?, datetime('now'))"
-  ).bind(token, userId, String(userAgent || '').trim() || null).run();
+    "INSERT INTO sessions (token, user_id, user_agent, client_id, last_seen_at) VALUES (?, ?, ?, ?, datetime('now'))"
+  ).bind(await hashToken(token), userId, String(userAgent || '').trim() || null, clientId || null).run();
+  // 顺带回收「长期没人用」的会话：90 天未活跃（无 last_seen_at 的老行按创建时间算）即删除。
+  // 这不与「会话不自动过期」冲突——被删的都是九十天没露过面的记录，不会因此把活跃设备踢下线；
+  // 目的是避免 sessions 表只增不减（大量被遗弃的会话会永久滞留）
+  await DB.prepare(
+    "DELETE FROM sessions WHERE COALESCE(last_seen_at, created_at) < datetime('now', '-90 days')"
+  ).run();
   return token;
+}
+
+// 判定本次登录来源站点，返回 apps.id（不在白名单内一律返回 null，即「直连登录」）
+// 取值优先级：显式 client 参数 → 请求 Origin 头。显式参数是必须的：
+// 安卓 App / 服务端直连调用没有 Origin 头，只能由调用方自己声明；能声明不等于可信，
+// 因此两种来源都必须命中 apps 白名单才认，未登记的站点点不出来源（宁可不标，也不要伪造的站点名）
+export async function resolveClient(DB, request, explicit) {
+  const raw = String(explicit || '').trim() || (request.headers.get('Origin') || '').trim();
+  if (!raw) return null;
+  // 能解析成 URL 就按 origin 精确匹配（new URL 会规范化大小写与默认端口、去掉路径）；
+  // 否则当作站点名匹配——App 端传的是应用名，没有 origin
+  let origin = '';
+  try { origin = new URL(raw).origin; } catch (e) { origin = ''; }
+  // 通行证自己的页面（同源）不算第三方来源，否则 account.html 的登录会被误标成某个站点
+  if (origin && origin === new URL(request.url).origin) return null;
+  const row = origin
+    ? await DB.prepare('SELECT id FROM apps WHERE origin = ?').bind(origin).first()
+    : await DB.prepare('SELECT id FROM apps WHERE name = ?').bind(raw).first();
+  return row ? row.id : null;
 }
 
 // 撤销该用户的全部会话（重置密码等安全场景：让所有设备一并登出）
@@ -101,6 +171,10 @@ export function describeDevice(ua) {
   let browser = '';
   if (/Edg[A-Za-z]*\//.test(s)) browser = 'Edge';
   else if (/OPR\//.test(s)) browser = 'Opera';
+  // iOS 上的浏览器都是 WebKit 内核，UA 里不含 Chrome/Firefox，而是各自的前缀（含 Safari/ 兜底标识），必须单独判
+  else if (/EdgiOS\//.test(s)) browser = 'Edge';
+  else if (/CriOS\//.test(s)) browser = 'Chrome';
+  else if (/FxiOS\//.test(s)) browser = 'Firefox';
   else if (/Firefox\//.test(s)) browser = 'Firefox';
   else if (/Chrome\//.test(s)) browser = 'Chrome';
   else if (/Safari\//.test(s)) browser = 'Safari';
@@ -113,14 +187,55 @@ export function describeDevice(ua) {
 export async function getUserId(DB, request) {
   const token = getToken(request);
   if (!token) return null;
-  const row = await DB.prepare('SELECT user_id, last_seen_at FROM sessions WHERE token = ?').bind(token).first();
-  if (!row) return null;
+  const s = await resolveSession(DB, token); // 含「老明文会话就地迁移为哈希」的兼容逻辑，见 resolveSession
+  if (!s) return null;
   // 库中为 UTC 的 'YYYY-MM-DD HH:MM:SS'，需按 UTC 解析；解析失败（历史 NULL）当作 0 → 立即补写一次
-  const last = Date.parse(String(row.last_seen_at || '').replace(' ', 'T') + 'Z') || 0;
+  const last = Date.parse(String(s.lastSeenAt || '').replace(' ', 'T') + 'Z') || 0;
   if (Date.now() - last > 3600 * 1000) {
-    await DB.prepare("UPDATE sessions SET last_seen_at = datetime('now') WHERE token = ?").bind(token).run();
+    // 用 s.key（迁移后即哈希）而非重新计算的哈希：老行刚被 UPDATE 过，此刻库里就是 s.key
+    await DB.prepare("UPDATE sessions SET last_seen_at = datetime('now') WHERE token = ?").bind(s.key).run();
   }
-  return row.user_id;
+  return s.userId;
+}
+
+// ---------- 登录失败限流（防止无限撞密码） ----------
+// 策略：按「账号」计数（昵称/邮箱统一转小写作为键），15 分钟窗口内失败满 5 次即锁定 15 分钟，登录成功立即清空。
+// 为什么不按 IP：D1 场景下拿不到稳定可信的客户端 IP，而按账号限流正好挡住「针对某个账号的暴力破解」这个主要威胁；
+// 记账与账号是否存在无关（不存在的账号一样计数），否则 429 的有无就成了「该账号是否存在」的探针，防枚举失效。
+// 代价：攻击者可以故意失败 5 次把某个账号临时锁住（15 分钟后自动解锁），这是换取「无法无限撞密码」的已知取舍。
+const LOGIN_FAIL_LIMIT = 5;            // 窗口内允许的失败次数
+const LOGIN_FAIL_WINDOW = '-15 minutes'; // 计数窗口
+const LOGIN_LOCK_FOR = '+15 minutes';    // 达到上限后的锁定时长
+
+// 返回剩余锁定秒数（0 = 未锁定；locked_until 为 NULL 或已过期都返回 0）
+export async function loginLockRemaining(DB, accountKey) {
+  const row = await DB.prepare(
+    "SELECT CAST(strftime('%s', locked_until) - strftime('%s', 'now') AS INTEGER) AS sec FROM login_attempts WHERE account = ?"
+  ).bind(accountKey).first();
+  return row && row.sec > 0 ? row.sec : 0;
+}
+
+// 记一次失败：窗口内累加，窗口外重新计数；达到上限则清零计数并写入锁定截止时间
+// 注意 datetime('now', ?) 的修饰符用占位符传入，不拼字符串
+export async function recordLoginFail(DB, accountKey) {
+  await DB.prepare(
+    `INSERT INTO login_attempts (account, fail_count, first_fail_at, locked_until)
+     VALUES (?, 1, datetime('now'), NULL)
+     ON CONFLICT(account) DO UPDATE SET
+       fail_count = CASE WHEN login_attempts.first_fail_at < datetime('now', ?)
+                         THEN 1 ELSE login_attempts.fail_count + 1 END,
+       first_fail_at = CASE WHEN login_attempts.first_fail_at < datetime('now', ?)
+                            THEN datetime('now') ELSE login_attempts.first_fail_at END`
+  ).bind(accountKey, LOGIN_FAIL_WINDOW, LOGIN_FAIL_WINDOW).run();
+  await DB.prepare(
+    `UPDATE login_attempts SET fail_count = 0, locked_until = datetime('now', ?)
+     WHERE account = ? AND fail_count >= ?`
+  ).bind(LOGIN_LOCK_FOR, accountKey, LOGIN_FAIL_LIMIT).run();
+}
+
+// 登录成功：清掉该账号的失败记录（不必等窗口自然过期）
+export async function clearLoginFails(DB, accountKey) {
+  await DB.prepare('DELETE FROM login_attempts WHERE account = ?').bind(accountKey).run();
 }
 
 // 注册时分配颜色：按注册顺序（用户数）取色，超过 60 色循环

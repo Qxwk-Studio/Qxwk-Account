@@ -278,29 +278,7 @@
   }
 </style>
 <meta name="color-scheme" content="light dark">
-<script>
-/* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
-(function () {
-  var KEY = 'theme';
-  var root = document.documentElement;
-  var mq = window.matchMedia('(prefers-color-scheme: dark)');
-  function system() { return mq.matches ? 'dark' : 'light'; }
-  function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
-  function apply(t) { root.setAttribute('data-theme', t); }
-  function current() { return stored() || system(); }
-  apply(current());
-  function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
-  // 按钮轮询绑定（不依赖 DOMContentLoaded，避免被外部脚本阻塞导致按钮长时间无效）
-  (function tryBind() {
-    var btn = document.getElementById('themeToggle');
-    if (btn) btn.addEventListener('click', toggle);
-    else setTimeout(tryBind, 50);
-  })();
-  if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-  else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-  window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
-})();
-</script>
+<script src="theme.js"></script>
 <style>
   /* ===== 黑夜模式：主题切换按钮 ===== */
   .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
@@ -361,19 +339,19 @@
       <p class="auth-subtitle" id="authSubtitle">使用 Qxwk 通行证登录，一处登录，通行各站</p>
 
       <div class="tabs">
-        <div class="tab active" id="tabLogin" onclick="switchTab('login')">登录</div>
-        <div class="tab" id="tabReg" onclick="switchTab('reg')">注册</div>
+        <div class="tab active" id="tabLogin" data-action="switchTab" data-mode="login">登录</div>
+        <div class="tab" id="tabReg" data-action="switchTab" data-mode="reg">注册</div>
       </div>
 
-      <form id="loginForm" onsubmit="return doLogin(event)">
+      <form id="loginForm">
         <div class="field"><label>昵称 / 邮箱</label><input id="loginNick" maxlength="100" placeholder="昵称或已绑定的邮箱" required></div>
         <div class="field"><label>密码</label><input id="loginPass" type="password" maxlength="50" placeholder="密码" required></div>
         <button class="btn btn-primary" type="submit" id="loginBtn">登录</button>
-        <div class="forgot-link"><a href="#" onclick="showForgot();return false;">忘记密码？</a></div>
+        <div class="forgot-link"><a href="#" data-action="showForgot">忘记密码？</a></div>
         <div class="msg" id="loginMsg"></div>
       </form>
 
-      <form id="regForm" style="display:none;" onsubmit="return doRegister(event)">
+      <form id="regForm" style="display:none;">
         <div class="field"><label>昵称</label><input id="regNick" maxlength="20" placeholder="1-20 个字符" required></div>
         <div class="field"><label>密码</label><input id="regPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
         <div class="field"><label>确认密码</label><input id="regPass2" type="password" maxlength="50" placeholder="再输入一次" required></div>
@@ -383,7 +361,7 @@
         <div class="msg" id="regMsg"></div>
       </form>
 
-      <form id="setPassForm" style="display:none;" onsubmit="return doSetPassword(event)">
+      <form id="setPassForm" style="display:none;">
         <div class="field"><label>昵称</label><input id="setPassNick" maxlength="20" readonly></div>
         <div class="field"><label>新密码</label><input id="setPassNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
         <div class="field"><label>确认新密码</label><input id="setPassNew2" type="password" maxlength="50" placeholder="再输入一次" required></div>
@@ -391,13 +369,13 @@
         <div class="msg" id="setPassMsg"></div>
       </form>
 
-      <form id="forgotForm" style="display:none;" onsubmit="return doForgotReset(event)">
+      <form id="forgotForm" style="display:none;">
         <div class="field">
           <label>绑定邮箱</label>
           <input id="forgotEmail" type="email" maxlength="100" placeholder="你已绑定并验证的邮箱" required>
         </div>
         <div class="field">
-          <button type="button" class="btn btn-primary" id="forgotSendBtn" onclick="sendForgotCode()">发送验证码到该邮箱</button>
+          <button type="button" class="btn btn-primary" id="forgotSendBtn" data-action="sendForgotCode">发送验证码到该邮箱</button>
         </div>
         <div class="code-row" id="forgotCodeRow" style="display:none;">
           <div class="field"><label>验证码</label><input id="forgotCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码"></div>
@@ -405,7 +383,7 @@
         <div class="field"><label>新密码</label><input id="forgotNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
         <div class="field"><label>确认新密码</label><input id="forgotNew2" type="password" maxlength="50" placeholder="再输入一次" required></div>
         <button class="btn btn-primary" type="submit" id="forgotBtn">重置密码并登录</button>
-        <div class="forgot-link back"><a href="#" onclick="backToLogin();return false;">← 返回登录</a></div>
+        <div class="forgot-link back"><a href="#" data-action="backToLogin">← 返回登录</a></div>
         <div class="msg" id="forgotMsg"></div>
       </form>
     </div>
@@ -415,249 +393,6 @@
 <footer class="footer"><div class="footer-copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
 
 <script src="app.js"></script>
-<script>
-/* 登录/注册切换 */
-// 表单区当前模式（登录/注册），决定标题与副标题文案
-var currentAuthMode = 'login';
-
-function switchTab(mode) {
-  currentAuthMode = mode;
-  document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
-  document.getElementById('tabReg').classList.toggle('active', mode === 'reg');
-  document.getElementById('loginForm').style.display = mode === 'login' ? '' : 'none';
-  document.getElementById('regForm').style.display = mode === 'reg' ? '' : 'none';
-  // 标题随模式切换（需求2）：登录↔注册各自展示对应欢迎词与副标题
-  document.getElementById('authTitle').textContent = mode === 'login' ? '👋 欢迎回来' : '👋 欢迎注册';
-  document.getElementById('authSubtitle').textContent = mode === 'login'
-    ? '使用 Qxwk 通行证登录，一处登录，通行各站'
-    : '注册一个通行证账号，一处登录，通行各站';
-}
-
-/* 登录/注册/设密/重置成功后的统一结尾：存会话并进入账号中心 */
-function applySession(data) {
-  saveSession(data);
-  location.href = 'account.html';
-}
-
-/* 已登录自动跳转：本地已有有效会话时直接进入账号中心 */
-async function autoRedirect() {
-  var token = localStorage.getItem(LS_TOKEN);
-  if (!token) return;
-  try {
-    await api('/me');
-    location.href = 'account.html';
-  } catch (e) { /* token 失效：app.js 已清 session，继续展示登录表单 */ }
-}
-
-async function doLogin(e) {
-  e.preventDefault();
-  var msg = document.getElementById('loginMsg');
-  var btn = document.getElementById('loginBtn');
-  msg.className = 'msg error';
-  btn.disabled = true;
-  msg.textContent = '登录中…';
-  try {
-    var data = await api('/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        nickname: document.getElementById('loginNick').value.trim(),
-        password: document.getElementById('loginPass').value,
-      }),
-    });
-    // 账号密码哈希为空：要求设置密码（切换到设密码表单，昵称以后端返回的真实昵称为准）
-    if (data && data.need_set_password) {
-      showSetPassForm(data.identity || document.getElementById('loginNick').value.trim());
-      return false;
-    }
-    msg.className = 'msg ok';
-    msg.textContent = '登录成功，正在跳转…';
-    applySession(data);
-  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
-  return false;
-}
-
-async function doRegister(e) {
-  e.preventDefault();
-  var msg = document.getElementById('regMsg');
-  var btn = document.getElementById('regBtn');
-  msg.className = 'msg error';
-  if (document.getElementById('regPass').value !== document.getElementById('regPass2').value) {
-    msg.textContent = '两次输入的密码不一致';
-    return false;
-  }
-  btn.disabled = true;
-  msg.textContent = '注册中…';
-  try {
-    var data = await api('/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        nickname: document.getElementById('regNick').value.trim(),
-        password: document.getElementById('regPass').value,
-        invite_code: document.getElementById('regInvite').value.trim(),
-      }),
-    });
-    msg.className = 'msg ok';
-    msg.textContent = '注册成功，正在进入…';
-    applySession(data);
-  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
-  return false;
-}
-
-/* 切换到"设置密码"视图（账号密码哈希为空时）：隐藏 tabs + 登录/注册表单，显示设密码表单 */
-function showSetPassForm(nick) {
-  document.querySelector('.tabs').style.display = 'none';
-  document.getElementById('loginForm').style.display = 'none';
-  document.getElementById('regForm').style.display = 'none';
-  document.getElementById('setPassForm').style.display = '';
-  document.getElementById('setPassNick').value = nick || '';
-  document.getElementById('setPassNew').value = '';
-  document.getElementById('setPassNew2').value = '';
-  document.getElementById('authTitle').textContent = '🔑 设置密码';
-  document.getElementById('authSubtitle').textContent = '该账号尚未设置密码，请先设置密码后登录';
-  var btn = document.getElementById('loginBtn'); if (btn) btn.disabled = false;
-  var msg = document.getElementById('setPassMsg');
-  msg.className = 'msg'; msg.textContent = '';
-  document.getElementById('setPassNew').focus();
-}
-
-/* 设置密码（账号哈希为空时首次设置）：走 /api/login 并带上 new_password，后端判定空哈希账号后设密并签发会话 */
-async function doSetPassword(e) {
-  e.preventDefault();
-  var msg = document.getElementById('setPassMsg');
-  var btn = document.getElementById('setPassBtn');
-  msg.className = 'msg error';
-  var p1 = document.getElementById('setPassNew').value;
-  var p2 = document.getElementById('setPassNew2').value;
-  if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; return false; }
-  btn.disabled = true;
-  msg.textContent = '设置中…';
-  try {
-    var data = await api('/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        nickname: document.getElementById('setPassNick').value.trim(),
-        new_password: p1,
-      }),
-    });
-    msg.className = 'msg ok';
-    msg.textContent = '密码设置成功，正在进入…';
-    applySession(data);
-  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
-  return false;
-}
-
-/* ---------- 忘记密码 ---------- */
-
-/* 进入「忘记密码」视图：隐藏 tabs + 其他表单，显示忘记密码表单 */
-function showForgot() {
-  resetAuthView();
-  document.getElementById('forgotForm').style.display = '';
-  document.getElementById('authTitle').textContent = '🔑 忘记密码';
-  document.getElementById('authSubtitle').textContent = '通过你已绑定并验证的邮箱重置密码';
-  document.getElementById('forgotEmail').focus();
-}
-
-/* 返回登录视图 */
-function backToLogin() {
-  resetAuthView();
-  currentAuthMode = 'login';
-  document.querySelector('.tabs').style.display = '';
-  document.getElementById('tabLogin').classList.add('active');
-  document.getElementById('tabReg').classList.remove('active');
-  document.getElementById('loginForm').style.display = '';
-  document.getElementById('authTitle').textContent = '👋 欢迎回来';
-  document.getElementById('authSubtitle').textContent = '使用 Qxwk 通行证登录，一处登录，通行各站';
-}
-
-/* 统一重置：隐藏 tabs 与所有表单（登录/注册/设密码/忘记密码） */
-function resetAuthView() {
-  document.querySelector('.tabs').style.display = 'none';
-  document.getElementById('loginForm').style.display = 'none';
-  document.getElementById('regForm').style.display = 'none';
-  document.getElementById('setPassForm').style.display = 'none';
-  document.getElementById('forgotForm').style.display = 'none';
-}
-
-/* 发送重置验证码：成功后显示验证码输入行 + 倒计时 */
-async function sendForgotCode() {
-  var msg = document.getElementById('forgotMsg');
-  var btn = document.getElementById('forgotSendBtn');
-  var email = document.getElementById('forgotEmail').value.trim();
-  msg.className = 'msg error';
-  msg.textContent = '';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
-  btn.disabled = true;
-  msg.textContent = '发送中…';
-  try {
-    // purpose:'reset' = 找回密码场景（无需登录，服务端按邮箱发重置码）
-    var data = await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'reset' }) });
-    msg.className = 'msg ok';
-    msg.textContent = (data && data.msg) || '发送成功，请查收';
-    document.getElementById('forgotCodeRow').style.display = '';
-    forgotCountdown(btn);
-  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
-}
-
-/* 发码按钮 60 秒倒计时 */
-function forgotCountdown(btn) {
-  var left = 60;
-  btn.textContent = left + 's 后重发';
-  var timer = setInterval(function () {
-    left--;
-    if (left <= 0) {
-      clearInterval(timer);
-      btn.disabled = false;
-      btn.textContent = '重新发送验证码';
-    } else {
-      btn.textContent = left + 's 后重发';
-    }
-  }, 1000);
-}
-
-/* 提交重置：校验验证码与新密码，成功后等同登录 */
-async function doForgotReset(e) {
-  e.preventDefault();
-  var msg = document.getElementById('forgotMsg');
-  var btn = document.getElementById('forgotBtn');
-  msg.className = 'msg error';
-  var email = document.getElementById('forgotEmail').value.trim();
-  var code = document.getElementById('forgotCode').value.trim();
-  var p1 = document.getElementById('forgotNew').value;
-  var p2 = document.getElementById('forgotNew2').value;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
-  if (!code) { msg.textContent = '请输入验证码'; return; }
-  if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; return; }
-  btn.disabled = true;
-  msg.textContent = '重置中…';
-  try {
-    // 带 new_password → 服务端按「重置密码」处理：核销重置码、改密、撤销全部旧会话并签发新会话
-    var data = await api('/email/verify', {
-      method: 'POST',
-      body: JSON.stringify({ email, code, new_password: p1, new_password_confirm: p2 }),
-    });
-    msg.className = 'msg ok';
-    msg.textContent = '密码已重置，正在登录…';
-    applySession(data);
-  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
-  return false;
-}
-fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
-  if (cfg && cfg.inviteCodeRequired === false) {
-    var field = document.getElementById('inviteField');
-    var input = document.getElementById('regInvite');
-    field.style.display = 'none';
-    input.required = false;
-  }
-  if (cfg && cfg.inviteRegisterEnabled === false) {
-    var notice = document.getElementById('invitePausedNotice');
-    if (notice) notice.style.display = '';
-    var regBtn = document.getElementById('regBtn');
-    if (regBtn) regBtn.disabled = true;
-  }
-}).catch(function () { /* 后端不可达时默认强制邀请码 */ });
-
-/* 初始化：本地已有有效会话则直接进账号中心，否则展示登录表单 */
-autoRedirect();
-</script>
+<script src="login.js" defer></script>
 </body>
 </html>

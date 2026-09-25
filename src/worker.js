@@ -5,7 +5,8 @@ import {
   hashPassword, verifyPassword, createSession, getUserId, assignColor,
   isValidNickname, isValidPassword, getAvatarUrl,
   genEmailCode, sendEmail, renderResetEmail, renderBrandEmail,
-  USER_COLORS, getToken, describeDevice, revokeAllSessions,
+  USER_COLORS, getToken, describeDevice, revokeAllSessions, resolveClient,
+  loginLockRemaining, recordLoginFail, clearLoginFails, resolveSession, getSessionKey,
 } from './lib.js';
 
 // ---------- CORS（全面放行：任意 Origin 都可跨域调用，鉴权靠 Bearer token） ----------
@@ -81,7 +82,9 @@ async function handleApi(request, env) {
       await DB.prepare('UPDATE invite_codes SET used_by = ? WHERE code = ?')
         .bind(userId, inviteCode).run();
     }
-    const token = await createSession(DB, userId, request.headers.get('User-Agent'));
+    // 来源站点：显式 body.client 优先，否则读 Origin 头；必须在 apps 白名单内才记录（见 lib.js resolveClient）
+    const clientId = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, userId, request.headers.get('User-Agent'), clientId);
     // 与登录保持同一响应字段（新注册无邮箱 → email/avatar 均为 null），避免前端两处处理分支
     return json({ token, userId, nickname, color, email: null, avatar: null, created_at: new Date().toISOString() }, 201);
   }
@@ -133,10 +136,21 @@ async function handleApi(request, env) {
     const newPassword = String(body.new_password || '');
     if (!account) return error('请填写昵称或邮箱');
 
+    // 失败限流：锁定期内直接 429（见 lib.js 顶部说明）。
+    // 这里只回报剩余时间、不区分账号是否存在，配合「失败一律计数」避免账号枚举
+    const accountKey = account.toLowerCase();
+    const lockSec = await loginLockRemaining(DB, accountKey);
+    if (lockSec > 0) {
+      return error('登录失败次数过多，请 ' + Math.ceil(lockSec / 60) + ' 分钟后再试', 429);
+    }
+
     // 昵称优先：先按昵称精确匹配；未命中再按邮箱（忽略大小写）匹配
     const user = await DB.prepare('SELECT * FROM users WHERE nickname = ?').bind(account).first()
       || await DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(account).first();
-    if (!user) return error('帐号或密码不正确', 401);
+    if (!user) {
+      await recordLoginFail(DB, accountKey);
+      return error('帐号或密码不正确', 401);
+    }
 
     if (!user.password_hash) {
       // 空哈希账号：没带 new_password 就返回引导标记（不在此处泄露密码是否正确），带了就设密后直接登录
@@ -147,12 +161,18 @@ async function handleApi(request, env) {
     } else {
       if (!password) return error('请填写密码');
       const ok = await verifyPassword(password, user.password_hash);
-      if (!ok) return error('帐号或密码不正确', 401);
+      if (!ok) {
+        await recordLoginFail(DB, accountKey);
+        return error('帐号或密码不正确', 401);
+      }
     }
 
-    const token = await createSession(DB, user.id, request.headers.get('User-Agent'));
-    // 登录日志（跨站 SSO 已下线：client_id / source_origin 不再写入，两列保留以兼容历史数据）
-    await DB.prepare('INSERT INTO login_log (user_id) VALUES (?)').bind(user.id).run();
+    await clearLoginFails(DB, accountKey); // 登录成功：清掉失败记录
+    // 来源站点：显式 body.client 优先，否则读 Origin 头；必须在 apps 白名单内才记录（见 lib.js resolveClient）
+    const clientId = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, user.id, request.headers.get('User-Agent'), clientId);
+    // 登录日志：记下来源站点（client_id），账号中心「最近登录记录」据此显示站点名；未登记的来源为 NULL → 显示「直接访问」
+    await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)').bind(user.id, clientId).run();
     return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: await getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -163,6 +183,29 @@ async function handleApi(request, env) {
     const user = await DB.prepare('SELECT id, nickname, color, email, email_verified, created_at FROM users WHERE id = ?').bind(userId).first();
     if (!user) return error('用户不存在', 401);
     return json({ userId: user.id, nickname: user.nickname, color: user.color, email: user.email, email_verified: !!user.email_verified, avatar: await getAvatarUrl(user.email), created_at: user.created_at });
+  }
+
+  // POST /api/verify（公开：第三方站点/App 校验 token 是否有效）
+  // token 来源：body {token} 优先（服务端调用方便），其次 Authorization: Bearer（浏览器场景）
+  // 无效 token 返回 200 + {valid:false}：下游用字段判断即可，不必先处理状态码分支
+  // 与 GET /api/me 的区别：本接口是「校验 + 归属」，额外返回 client（该 token 是哪个站点带来的）；
+  // 且**不**滚动更新 last_seen_at、不写登录日志——站点后端可能高频轮询，不该污染活跃时间与登录记录
+  // 只回最小信息 {valid, userId, client}：调用方真正需要的只有「这个 token 属于哪个 userId」，
+  // 昵称/邮箱/头像等资料一律不回（token 一旦泄露，泄露者也不该顺带拿到用户的邮箱）；要资料请自带 Bearer 调 /api/me
+  if (method === 'POST' && path === '/api/verify') {
+    const body = await request.json().catch(() => ({}));
+    const raw = String(body.token || '').trim() || getToken(request);
+    if (!raw) return json({ valid: false });
+    // 用 resolveSession 而非直接按哈希查：老明文会话在这里也会被识别并就地迁移（见 lib.js）
+    const s = await resolveSession(DB, raw);
+    if (!s) return json({ valid: false });
+    // 用户已不存在时同样视为无效（会话行可能残留）
+    const alive = await DB.prepare('SELECT 1 FROM users WHERE id = ?').bind(s.userId).first();
+    if (!alive) return json({ valid: false });
+    const client = s.clientId
+      ? await DB.prepare('SELECT id, name, origin, homepage FROM apps WHERE id = ?').bind(s.clientId).first()
+      : null;
+    return json({ valid: true, userId: s.userId, client: client || null });
   }
 
   // PUT /api/profile（登录：修改个人资料。可改昵称/颜色/邮箱）
@@ -333,7 +376,14 @@ async function handleApi(request, env) {
     const passwordHash = await hashPassword(newPassword);
     await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, owner.id).run();
     await revokeAllSessions(DB, owner.id);
-    const token = await createSession(DB, owner.id, request.headers.get('User-Agent'));
+    // 重置后签发的会话同样记录来源站点（若用户是在某站点里走的重置流程）
+    const clientId = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, owner.id, request.headers.get('User-Agent'), clientId);
+    // 登录日志与 /api/login 一致（重置成功也是「一次登录」）；顺带清掉该账号的失败限流记录：
+    // 用户往往正是「撞上锁定 → 走邮箱重置」进来的，不清的话他重置完仍会被锁 15 分钟登不进去
+    await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)').bind(owner.id, clientId).run();
+    await clearLoginFails(DB, String(owner.nickname || '').toLowerCase());
+    if (owner.email) await clearLoginFails(DB, String(owner.email).toLowerCase());
     return json({
       token, userId: owner.id, nickname: owner.nickname, color: owner.color,
       email: owner.email, avatar: await getAvatarUrl(owner.email), created_at: owner.created_at,
@@ -355,14 +405,16 @@ async function handleApi(request, env) {
   }
 
   // POST /api/logout（登录：撤销当前会话，幂等；其他设备不受影响）
+  // 必须走 resolveSession 取「库中实际存的键」：老明文会话在迁移前其键并不等于 sha256(token)，
+  // 直接按哈希删会删不中，表现为「点了退出但还能用」
   if (method === 'POST' && path === '/api/logout') {
-    const token = getToken(request);
-    if (token) await DB.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
+    const key = await getSessionKey(DB, request);
+    if (key) await DB.prepare('DELETE FROM sessions WHERE token = ?').bind(key).run();
     return json({ ok: true });
   }
 
   // GET /api/login-log（登录：最近登录记录，展示在账号中心「登录设备」卡底部）
-  // 跨站 SSO 已下线：client_id / source_origin 不再有新数据写入，历史行仍按原样返回
+  // 每条带来源站点名（client_id → apps.name）；未登记来源 / 直连登录为 NULL，前端显示「直接访问」
   if (method === 'GET' && path === '/api/login-log') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
@@ -374,17 +426,20 @@ async function handleApi(request, env) {
     return json({ logs: logs.results });
   }
 
-  // GET /api/sessions（登录：本账号全部登录设备，供账号中心「登录设备」卡展示）
+  // GET /api/sessions（登录：本账号「直连登录」的设备，供账号中心「登录设备」卡展示）
+  // 只列 client_id IS NULL 的会话（在通行证/App 上直接登录的设备）；从第三方站点带 client 来的会话
+  // 一律归「已授权网站」卡（GET /api/clients），两张卡各管一类、信息不重叠
   // id 用 sessions 的 rowid：该表是普通 rowid 表，无需额外加主键列即可作为稳定的下线标识
   // 只返回 describeDevice 的展示名，不返回 token / UA 原始串（避免把可用凭证或指纹暴露给前端）
   if (method === 'GET' && path === '/api/sessions') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
-    const token = getToken(request);
+    // 当前会话的键由 getSessionKey 取（老明文会话会在这一步被迁移，键才与库中一致）
+    const tokenKey = await getSessionKey(DB, request);
     const rows = await DB.prepare(
       `SELECT rowid AS id, token, user_agent, created_at,
               COALESCE(last_seen_at, created_at) AS last_seen_at
-       FROM sessions WHERE user_id = ?
+       FROM sessions WHERE user_id = ? AND client_id IS NULL
        ORDER BY last_seen_at DESC, rowid DESC`
     ).bind(userId).all();
     return json({
@@ -393,7 +448,7 @@ async function handleApi(request, env) {
         device: describeDevice(s.user_agent),
         created_at: s.created_at,
         last_seen_at: s.last_seen_at,
-        current: s.token === token,
+        current: s.token === tokenKey,
       })),
     });
   }
@@ -407,7 +462,7 @@ async function handleApi(request, env) {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return error('参数无效');
     const del = await DB.prepare('DELETE FROM sessions WHERE rowid = ? AND user_id = ? AND token != ?')
-      .bind(id, userId, getToken(request)).run();
+      .bind(id, userId, await getSessionKey(DB, request)).run();
     if (del.meta.changes === 0) return error('设备不存在或为当前设备', 404);
     return json({ ok: true });
   }
@@ -417,11 +472,96 @@ async function handleApi(request, env) {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const del = await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?')
-      .bind(userId, getToken(request)).run();
+      .bind(userId, await getSessionKey(DB, request)).run();
     return json({ ok: true, revoked: del.meta.changes });
   }
 
+  // POST /api/clients/revoke（登录：注销某网站的登录 = 撤销本账号在该来源站点的全部会话）
+  // 与 /api/sessions/revoke（按设备）互补：这里是按站点批量撤销。
+  // WHERE 同时限定 user_id：猜到他站的 apps.id 也删不到别人的会话。
+  // 若当前会话本身就来自该站点（例如站点内直接调本接口），它会被一并撤销——这正是「取消该网站登录」应有的语义；
+  // 账号中心的调用是同源的（client_id 为 NULL），所以不会把自己踢下线。
+  if (method === 'POST' && path === '/api/clients/revoke') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    const body = await request.json().catch(() => ({}));
+    const clientId = Number(body.id);
+    if (!Number.isInteger(clientId)) return error('参数无效');
+    const del = await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND client_id = ?')
+      .bind(userId, clientId).run();
+    if (del.meta.changes === 0) return error('该网站没有活跃登录', 404);
+    return json({ ok: true, revoked: del.meta.changes });
+  }
+
+  // GET /api/clients（登录：已授权网站列表 + 每站各自的登录设备，按站点聚合）
+  // 只列 client_id 命中 apps 白名单的会话；通行证直连登录（client_id IS NULL）不属于任何站点，
+  // 归「登录设备」卡（GET /api/sessions），两卡互不重叠
+  // sessions 子数组给前端「展开该站点看设备」用：每条含 rowid（下线标识）/设备名/时间/是否当前设备
+  if (method === 'GET' && path === '/api/clients') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    const tokenKey = await getSessionKey(DB, request);
+    const rows = await DB.prepare(
+      `SELECT s.rowid AS id, s.token, s.user_agent, s.created_at, s.client_id,
+              COALESCE(s.last_seen_at, s.created_at) AS last_seen_at,
+              a.name, a.origin, a.homepage
+       FROM sessions s JOIN apps a ON a.id = s.client_id
+       WHERE s.user_id = ?
+       ORDER BY last_seen_at DESC`
+    ).bind(userId).all();
+    // 按站点聚合；行已按 last_seen_at 降序，故首个出现的站点即「最近活跃」，Map 的插入顺序天然就是展示顺序
+    const byClient = new Map();
+    for (const r of rows.results) {
+      if (!byClient.has(r.client_id)) {
+        byClient.set(r.client_id, {
+          id: r.client_id, name: r.name, origin: r.origin, homepage: r.homepage,
+          session_count: 0, last_seen_at: r.last_seen_at, sessions: [],
+        });
+      }
+      const c = byClient.get(r.client_id);
+      c.session_count++;
+      c.sessions.push({
+        id: r.id,
+        device: describeDevice(r.user_agent),
+        created_at: r.created_at,
+        last_seen_at: r.last_seen_at,
+        current: r.token === tokenKey,
+      });
+    }
+    return json({ clients: [...byClient.values()] });
+  }
+
   return null; // 不是已知 API 路由
+}
+
+// ---------- 安全响应头（只加在 HTML 上） ----------
+// CSP 的作用：token 存在 localStorage，一旦页面被注入脚本，脚本就能直接读走 token；
+// CSP 收紧「脚本只能来自本站」，把「外部脚本注入 / eval 执行」这条最容易被利用的路堵掉。
+// script-src 只放 'self'（**不含** 'unsafe-inline'）：各页的内联 <script> 已抽成 public/*.js 外链、
+// 内联 on* 处理器已改为 data-action + 事件委托，故 inline 脚本与内联处理器都会被正确拦下；
+// 新增页面/按钮时**不要再写内联脚本或 onclick**，否则会被 CSP 静默拦掉（在控制台才会报错）。
+// style-src 仍保留 'unsafe-inline'：页面里有内联 <style> 块，且多处用 style="..." 做数据驱动着色
+// （如颜色色板 background），拆成 class 得不偿失。
+// img-src 放行 weavatar.com（QQ 头像外链）；frame-ancestors 'none' 禁止本站页面被他人 iframe 嵌套。
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://weavatar.com",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+function addSecurityHeaders(res) {
+  const type = res.headers.get('Content-Type') || '';
+  if (!type.includes('text/html')) return res; // 只给 HTML 加，静态资源与 API JSON 不动
+  const h = new Headers(res.headers);
+  h.set('Content-Security-Policy', CSP);
+  h.set('X-Content-Type-Options', 'nosniff');
+  h.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
 // ---------- 入口 ----------
@@ -439,7 +579,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': origin,
           'Vary': 'Origin',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
           'Access-Control-Max-Age': '86400',
         },
@@ -454,6 +594,6 @@ export default {
 
     // 其余：静态资源（public/），并同步 CORS 头
     const res = await env.ASSETS.fetch(request);
-    return corsHeaders(request, res);
+    return corsHeaders(request, addSecurityHeaders(res));
   },
 };

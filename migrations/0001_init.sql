@@ -16,18 +16,21 @@ CREATE TABLE IF NOT EXISTS users (
 -- 多会话模型：同一账号可在多台设备同时登录，各持独立 token，可逐个或一键下线（不再「重新登录轮换旧会话」）
 -- user_agent = 登录时的 UA 原始串（设备名由后端 describeDevice() 解析；NULL = 未知设备）
 -- last_seen_at = 最后活跃时间，鉴权请求时节流滚动更新（与上次相差 >1 小时才写库）；查询时用 COALESCE(last_seen_at, created_at) 回退
+-- client_id = 本次登录来源站点（apps.id；NULL = 通行证直连登录，非第三方站点带来）→ 账号中心「已授权网站」卡按它聚合
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
   user_agent TEXT,
+  client_id INTEGER,
   created_at TEXT DEFAULT (datetime('now')),
   last_seen_at TEXT,
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (client_id) REFERENCES apps(id)
 );
 
--- 第三方应用注册表：SSO 回调 redirect 域名白名单（防 open-redirect）+ 来源站点展示
+-- 第三方应用注册表：接入本站的站点白名单（现用于「登录来源归属」，即 sessions.client_id）
 -- 接入一个新站点 = INSERT 一行（name/origin/homepage），无需改代码
--- 注：跨站 SSO 已下线，本表与其数据（含 login_log 的 client_id/source_origin）仅作历史存档保留，新代码不再写入
+-- 注：跨站 SSO 已下线，本表不再承担 SSO 回调白名单职责，但仍是第三方来源的权威名单
 CREATE TABLE IF NOT EXISTS apps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,                   -- 站点名：如 "City Footprint"
@@ -48,6 +51,17 @@ CREATE TABLE IF NOT EXISTS login_log (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_login_log_user ON login_log(user_id);
+
+-- 登录失败限流表（防止无限撞密码）
+-- account = 归一化后的账号键（昵称/邮箱统一转小写）；只记失败，登录成功即删除该行
+-- fail_count / first_fail_at 组成 15 分钟计数窗口；达到上限后 locked_until = now + 15 分钟，窗口计数清零
+-- 与账号是否存在无关（不存在的账号同样计数），避免「429 的有无」泄露账号是否注册
+CREATE TABLE IF NOT EXISTS login_attempts (
+  account TEXT PRIMARY KEY,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  first_fail_at TEXT NOT NULL DEFAULT (datetime('now')),
+  locked_until TEXT                      -- 锁定截止时间，NULL = 未锁定
+);
 
 -- 邮箱验证码表（绑定验证 + 找回密码复用）
 -- purpose = 'verify' 绑定验证 | 'reset' 找回密码（同一张表两用途）

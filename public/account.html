@@ -277,6 +277,14 @@
   .session-item .dev .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); flex-shrink: 0; }
   .session-item.current .dev .dot { background: var(--primary); }
   .session-item .meta { font-size: 0.76rem; color: var(--text-tertiary); margin-top: 3px; }
+  /* 已授权网站：每个站点一行，点站点名展开（<details>）后列出该站点里的登录设备 */
+  .site summary { cursor: pointer; list-style: none; display: block; }
+  .site summary::-webkit-details-marker { display: none; }
+  .site summary::before { content: '▸'; color: var(--text-tertiary); font-size: 0.7rem; display: inline-block; width: 12px; }
+  .site[open] summary::before { content: '▾'; }
+  .site-devs { margin: 8px 0 2px 4px; padding-left: 14px; border-left: 2px solid var(--border); }
+  .site-dev { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+  .site-dev .meta { margin-top: 0; }
   .badge-current { font-size: 0.72rem; font-weight: 600; color: var(--primary); background: var(--primary-light); padding: 2px 10px; border-radius: 40px; white-space: nowrap; }
   /* 卡片内分区（如「登录设备」卡底部的最近登录记录）：分隔线 + 小标题 */
   .sub-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
@@ -575,29 +583,7 @@
   }
 </style>
 <meta name="color-scheme" content="light dark">
-<script>
-/* 主题切换：localStorage('theme') 优先，其次跟随系统 prefers-color-scheme；同步写入 <html> 的 data-theme 防闪烁 */
-(function () {
-  var KEY = 'theme';
-  var root = document.documentElement;
-  var mq = window.matchMedia('(prefers-color-scheme: dark)');
-  function system() { return mq.matches ? 'dark' : 'light'; }
-  function stored() { try { var v = localStorage.getItem(KEY); return (v === 'dark' || v === 'light') ? v : null; } catch (e) { return null; } }
-  function apply(t) { root.setAttribute('data-theme', t); }
-  function current() { return stored() || system(); }
-  apply(current());
-  function toggle() { var next = current() === 'dark' ? 'light' : 'dark'; apply(next); try { localStorage.setItem(KEY, next); } catch (e) {} }
-  // 按钮轮询绑定（不依赖 DOMContentLoaded，避免被外部脚本阻塞导致按钮长时间无效）
-  (function tryBind() {
-    var btn = document.getElementById('themeToggle');
-    if (btn) btn.addEventListener('click', toggle);
-    else setTimeout(tryBind, 50);
-  })();
-  if (mq.addEventListener) mq.addEventListener('change', function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-  else if (mq.addListener) mq.addListener(function (e) { if (!stored()) apply(e.matches ? 'dark' : 'light'); });
-  window.addEventListener('storage', function (e) { if (e.key === KEY) apply(current()); });
-})();
-</script>
+<script src="theme.js"></script>
 <style>
   /* ===== 黑夜模式：主题切换按钮 ===== */
   .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
@@ -683,7 +669,7 @@
     <div class="auth-form">
       <h2 class="auth-title">你还没有登录</h2>
       <p class="auth-subtitle">登录后才能查看你的通行证账号信息</p>
-      <button type="button" class="btn btn-primary" onclick="location.href='login.html'">去登录 / 注册</button>
+      <button type="button" class="btn btn-primary" data-action="goLogin">去登录 / 注册</button>
       <div class="msg" id="authMsg"></div>
     </div>
   </div>
@@ -730,7 +716,7 @@
             </div>
             <div class="field color-field">
               <label>专属颜色</label>
-              <button type="button" class="color-trigger" id="colorTrigger" onclick="toggleColorMenu(event)">
+              <button type="button" class="color-trigger" id="colorTrigger" data-action="toggleColorMenu">
                 <span class="color-dot" id="colorPreviewDot" style="background:#ccc;"></span>
                 <span class="color-trigger-text" id="colorPreviewLabel">点击选择专属颜色</span>
                 <svg class="chevron small" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -746,14 +732,31 @@
               <input id="accEmail" type="email" placeholder="选填，如 you@example.com">
               <div class="hint">仅 QQ 邮箱（@qq.com）可获得头像</div>
             </div>
-            <button class="btn btn-primary" id="saveProfileBtn" onclick="saveProfile()">保存修改</button>
+            <button class="btn btn-primary" id="saveProfileBtn" data-action="saveProfile">保存修改</button>
             <div class="msg" id="profileMsg"></div>
+          </div>
+        </div>
+
+        <!-- 邮箱验证 -->
+        <div class="card" id="emailCard">
+          <div class="card-title-row">
+            <h3>📧 邮箱验证</h3>
+            <span class="email-status pending" id="emailStatusVer"><span class="pulse"></span><span id="emailStatusVerText">未验证</span></span>
+          </div>
+          <div class="card-subtitle">验证你的邮箱以使用完整功能</div>
+          <div class="field">
+            <button type="button" class="btn btn-primary" id="sendCodeBtn" data-action="sendEmailCode">发送验证码至填写的邮箱</button>
+            <div class="code-row" id="codeRow">
+              <input id="emailCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
+              <button type="button" class="btn btn-primary" id="verifyCodeBtn" data-action="verifyEmailCode">验证绑定</button>
+            </div>
+            <div class="msg" id="emailMsg"></div>
           </div>
         </div>
 
         <!-- 重置密码（折叠，默认收起） -->
         <div class="card card-collapse" id="pwdCard">
-          <div class="collapse-title" onclick="toggleCard('pwdCard')" role="button" tabindex="0">
+          <div class="collapse-title" data-action="toggleCard" data-card="pwdCard" role="button" tabindex="0">
             <h3>🔒 重置密码</h3>
             <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
@@ -766,7 +769,7 @@
               <label>确认新密码</label>
               <input id="newPassword2" type="password" placeholder="再次输入新密码" maxlength="50" autocomplete="new-password">
             </div>
-            <button class="btn btn-primary" id="changePwdBtn" onclick="changePassword()">修改密码</button>
+            <button class="btn btn-primary" id="changePwdBtn" data-action="changePassword">修改密码</button>
             <div class="msg" id="pwdMsg"></div>
           </div>
         </div>
@@ -778,36 +781,19 @@
           <h3>🎫 邀请好友</h3>
           <div class="invite-code-row">
             <code id="inviteCodeText" class="invite-code">点击下方按钮获取</code>
-            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" onclick="copyInviteCode()" disabled>复制</button>
+            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" data-action="copyInviteCode" disabled>复制</button>
           </div>
           <div class="hint" id="inviteHint" style="margin:8px 0 0;">分享给朋友注册用，一个码只能注册一次</div>
-          <button class="btn btn-primary" id="generateInviteBtn" onclick="loadInviteCode()" style="margin-top:14px;">生成邀请码</button>
-        </div>
-
-        <!-- 邮箱验证 -->
-        <div class="card" id="emailCard">
-          <div class="card-title-row">
-            <h3>📧 邮箱验证</h3>
-            <span class="email-status pending" id="emailStatusVer"><span class="pulse"></span><span id="emailStatusVerText">未验证</span></span>
-          </div>
-          <div class="card-subtitle">验证你的邮箱以使用完整功能</div>
-          <div class="field">
-            <button type="button" class="btn btn-primary" id="sendCodeBtn" onclick="sendEmailCode()">发送验证码至填写的邮箱</button>
-            <div class="code-row" id="codeRow">
-              <input id="emailCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
-              <button type="button" class="btn btn-primary" id="verifyCodeBtn" onclick="verifyEmailCode()">验证绑定</button>
-            </div>
-            <div class="msg" id="emailMsg"></div>
-          </div>
+          <button class="btn btn-primary" id="generateInviteBtn" data-action="loadInviteCode" style="margin-top:14px;">生成邀请码</button>
         </div>
 
         <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线；底部合并了「最近登录记录」） -->
         <div class="card" id="sessionCard">
           <div class="card-title-row">
             <h3>💻 登录设备</h3>
-            <button class="btn btn-ghost btn-sm push-right" onclick="revokeOtherSessions()">下线其他所有设备</button>
+            <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions">下线其他所有设备</button>
           </div>
-          <div class="card-subtitle">这些设备已登录你的账号，发现可疑设备可立即下线</div>
+          <div class="card-subtitle">直接在通行证登录的设备；通过其他网站登录的会话见下方「已授权网站」</div>
           <div id="sessionList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="sessionMsg"></div>
           <div class="sub-block">
@@ -816,13 +802,24 @@
           </div>
         </div>
 
+        <!-- 已授权网站（按来源站点聚合本账号的会话，可整站注销登录；数据来自 sessions.client_id）
+             站点会话不在「登录设备」卡里，点站点名展开即看该站点的登录设备 -->
+        <div class="card" id="clientCard">
+          <div class="card-title-row">
+            <h3>🌐 已授权网站</h3>
+          </div>
+          <div class="card-subtitle">这些网站可用你的通行证账号登录；点站点名可展开查看它的登录设备，注销后需在该网站重新登录</div>
+          <div id="clientList"><div class="empty">正在加载…</div></div>
+          <div class="msg" id="clientMsg"></div>
+        </div>
+
         <!-- 退出登录：大卡片 -->
         <div class="card-logout">
           <h3>退出登录</h3>
           <div class="logout-tip">
             退出后在本站需重新登录，其他设备不受影响
           </div>
-          <button class="btn-logout" onclick="logout()">
+          <button class="btn-logout" data-action="logout">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             退出登录
           </button>
@@ -835,503 +832,6 @@
 <footer class="footer"><div class="footer-copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
 
 <script src="app.js"></script>
-<script>
-// 直接使用头像链接（由 /api/me 返回的 avatar 字段）设置头像；
-// 无链接或图片加载失败时，回退为昵称首字 + 专属颜色
-function setAvatarFromUrl(el, avatarUrl, nickname, color) {
-  function fallback() {
-    el.textContent = (nickname || '?').charAt(0).toUpperCase();
-    el.style.background = color || 'var(--primary)';
-    el.style.boxShadow = '0 6px 20px ' + (color || '#2563eb') + '55';
-  }
-  if (!avatarUrl) { fallback(); return; }
-  var img = document.createElement('img');
-  img.src = avatarUrl;
-  img.alt = (nickname || '用户') + ' 的头像';
-  img.referrerPolicy = 'no-referrer';
-  img.onerror = fallback;
-  el.textContent = '';
-  el.style.background = 'var(--bg)';   // 占位底色（图片加载中/透明时）
-  el.style.boxShadow = '0 6px 20px ' + (color || '#2563eb') + '55';
-  el.appendChild(img);
-}
-
-// 展示未登录界面（无会话，或会话校验失败）
-function showAuthView() {
-  document.getElementById('loadingView').style.display = 'none';
-  document.getElementById('authView').style.display = '';
-}
-
-function enterUserView(avatarUrl) {
-  document.getElementById('loadingView').style.display = 'none';
-  document.getElementById('authView').style.display = 'none';
-  document.getElementById('mainContent').style.display = '';
-  var s = getSession();
-  // 专属颜色驱动主卡渐变
-  if (s && s.color) document.documentElement.style.setProperty('--user-color', s.color);
-  document.getElementById('welcomeText').textContent = (s ? s.nickname : '') + '，欢迎回来 👋';
-  document.getElementById('userUid').textContent = 'UID：' + (s ? s.userId : '');
-  // 大头像：直接使用会话或接口返回的头像链接，加载失败回退昵称首字 + 专属颜色
-  var avatar = document.getElementById('profileAvatar');
-  if (avatar) setAvatarFromUrl(avatar, avatarUrl || (s && s.avatar), s ? s.nickname : '', s ? s.color : '#2563eb');
-  var colorDot = document.getElementById('userColor');
-  if (colorDot && s && s.color) {
-    colorDot.style.background = s.color;
-    colorDot.style.boxShadow = '0 0 0 3px ' + s.color + '40';
-  }
-  document.getElementById('userColorText').textContent = '专属颜色';
-  var regEl = document.getElementById('userRegTime');
-  if (regEl && window._regTime) regEl.textContent = '注册于 ' + window._regTime;
-}
-
-// 60 种 Material 调色板（与 src/lib.js USER_COLORS 一致）
-const USER_COLORS = [
-  '#dc2626', '#ef4444', '#f87171', '#ea580c', '#f97316', '#b45309', '#fb923c', '#fdba74', '#d97706', '#f59e0b',
-  '#fbbf24', '#eab308', '#fcd34d', '#facc15', '#fde047', '#d9f99d', '#a3e635', '#84cc16', '#65a30d', '#86efac',
-  '#4ade80', '#22c55e', '#16a34a', '#6ee7b7', '#34d399', '#10b981', '#99f6e4', '#2dd4bf', '#14b8a6', '#a5f3fc',
-  '#22d3ee', '#06b6d4', '#0891b2', '#38bdf8', '#0ea5e9', '#bae6fd', '#93c5fd', '#60a5fa', '#3b82f6', '#2563eb',
-  '#818cf8', '#6366f1', '#4f46e5', '#a78bfa', '#8b5cf6', '#7c3aed', '#d8b4fe', '#c084fc', '#a855f7', '#f0abfc',
-  '#e879f9', '#d946ef', '#f9a8d4', '#f472b6', '#ec4899', '#db2777', '#be185d', '#f43f5e', '#fb7185', '#fda4af',
-];
-
-// 当前选中的颜色（保存按钮提交用）；null = 尚未在色板点选
-let selectedColor = null;
-
-// 渲染色板浮层：current 为已有颜色，对其高亮 .active
-function renderColorPicker(current) {
-  const grid = document.getElementById('colorMenuGrid');
-  selectedColor = current || null;
-  grid.innerHTML = USER_COLORS.map(function (hex) {
-    return '<div class="swatch' + (hex === current ? ' active' : '') + '" role="button" tabindex="0" style="background:' + hex + '" data-color="' + hex + '" onclick="pickColor(\'' + hex + '\')"></div>';
-  }).join('');
-  syncColorTrigger(current);
-}
-
-// 同步颜色触发器的圆点与文案（仅修改资料表单内的局部预览，不影响上方展示）
-function syncColorTrigger(hex) {
-  const dot = document.getElementById('colorPreviewDot');
-  const label = document.getElementById('colorPreviewLabel');
-  if (hex && dot) dot.style.background = hex;
-  if (label) label.textContent = hex ? hex.toUpperCase() : '点击选择专属颜色';
-}
-
-// 点选色块：仅记录选中值 + 更新色板高亮 / 触发器局部预览
-// 上方主卡渐变 / 大头像 / 右上色点留待「保存修改」成功后才更新
-function pickColor(hex) {
-  selectedColor = hex;
-  document.querySelectorAll('#colorMenuGrid .swatch').forEach(function (el) {
-    el.classList.toggle('active', el.dataset.color === hex);
-  });
-  syncColorTrigger(hex);
-  // 点选后收起浮层
-  toggleColorMenu(null, true);
-}
-
-// 颜色浮层展开/收起：openForce 为 true 时强制关闭
-function toggleColorMenu(event, openForce) {
-  const field = document.querySelector('.color-field');
-  const trigger = document.getElementById('colorTrigger');
-  const willOpen = openForce === true ? false : (openForce === false ? true : !field.classList.contains('open'));
-  field.classList.toggle('open', willOpen);
-  trigger.classList.toggle('open', willOpen);
-  if (event) event.stopPropagation();
-}
-
-// 更新主卡渐变 / 大头像 / 右上色点
-function updateColorUI(hex) {
-  if (!hex) return;
-  const avatar = document.getElementById('profileAvatar');
-  if (avatar) {
-    avatar.style.background = hex;
-    avatar.style.boxShadow = '0 6px 20px ' + hex + '55';
-  }
-  const dot = document.getElementById('userColor');
-  if (dot) {
-    dot.style.background = hex;
-    dot.style.boxShadow = '0 0 0 3px ' + hex + '40';
-  }
-}
-
-
-// 折叠卡 / 颜色浮层：点击外部关闭
-document.addEventListener('click', function (e) {
-  const field = document.querySelector('.color-field');
-  if (field && !field.contains(e.target)) {
-    field.classList.remove('open');
-    const t = document.getElementById('colorTrigger');
-    if (t) t.classList.remove('open');
-  }
-});
-
-// 填充修改资料表单（来自 /api/me）
-async function loadProfileForm() {
-  const data = await api('/me');
-  document.getElementById('accNickname').value = data.nickname || '';
-  document.getElementById('accEmail').value = data.email || '';
-  renderColorPicker(data.color);
-  syncColorTrigger(data.color);
-  // 用服务端的最新颜色驱动主卡渐变（仅在初始化时设置，选色阶段不更新）
-  if (data.color) document.documentElement.style.setProperty('--user-color', data.color);
-  // 邮箱验证状态徽标
-  updateEmailStatus(data);
-}
-
-// 刷新邮箱验证状态徽标（data 来自 /api/me）：仅“已验证 / 未验证”徽章
-function updateEmailStatus(data) {
-  var ver = document.getElementById('emailStatusVer');
-  var verT = document.getElementById('emailStatusVerText');
-  var sendBtn = document.getElementById('sendCodeBtn');
-  // 验证徽章：未绑定邮箱时显示“未验证”占位，但发码按钮仍允许发码绑定
-  if (ver) {
-    if (data.email && data.email_verified) {
-      ver.className = 'email-status ok';
-      if (verT) verT.textContent = '已验证';
-    } else {
-      ver.className = 'email-status pending';
-      if (verT) verT.textContent = '未验证';
-    }
-  }
-  // 已验证后不再显示“发送验证码”；未验证或未绑定时仍显示以便绑定
-  if (sendBtn) sendBtn.style.display = (data.email && data.email_verified) ? 'none' : '';
-}
-
-// 重新拉取最新资料，仅刷新邮箱状态徽章与发码按钮（改邮箱/验证后调用）
-async function refreshEmailStatus() {
-  try {
-    const data = await api('/me');
-    updateEmailStatus(data);
-  } catch (e) { /* 拉取失败则忽略 */ }
-}
-
-// 显示/隐藏验证码输入行
-function showCodeRow(show) {
-  var row = document.getElementById('codeRow');
-  if (row) row.classList.toggle('show', show);
-}
-
-// 发码按钮倒计时
-function startCountdown(btn) {
-  var left = 60;
-  btn.textContent = left + 's 重试';
-  var timer = setInterval(function () {
-    left--;
-    if (left <= 0) {
-      clearInterval(timer);
-      btn.disabled = false;
-      btn.textContent = '发送验证码';
-    } else {
-      btn.textContent = left + 's 重试';
-    }
-  }, 1000);
-}
-
-// 发送验证码 → POST /api/email/code（purpose:'verify' = 绑定邮箱场景，需登录）
-async function sendEmailCode() {
-  const msg = document.getElementById('emailMsg');
-  const btn = document.getElementById('sendCodeBtn');
-  const email = document.getElementById('accEmail').value.trim();
-  msg.className = 'msg error';
-  msg.textContent = '';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    msg.textContent = '请先填写正确的邮箱地址';
-    return;
-  }
-  btn.disabled = true;
-  msg.textContent = '发送中…';
-  try {
-    await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'verify' }) });
-    msg.className = 'msg ok';
-    msg.textContent = '验证码已发送，10 分钟内有效，请查收';
-    showCodeRow(true);
-    startCountdown(btn);
-  } catch (err) {
-    btn.disabled = false;
-    msg.textContent = err.message;
-  }
-}
-
-// 校验验证码 → POST /api/email/verify
-async function verifyEmailCode() {
-  const msg = document.getElementById('emailMsg');
-  const btn = document.getElementById('verifyCodeBtn');
-  const email = document.getElementById('accEmail').value.trim();
-  const code = document.getElementById('emailCode').value.trim();
-  msg.className = 'msg error';
-  msg.textContent = '';
-  if (!email) { msg.textContent = '请先填写邮箱'; return; }
-  if (!code) { msg.textContent = '请输入验证码'; return; }
-  btn.disabled = true;
-  msg.textContent = '验证中…';
-  try {
-    await api('/email/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
-    msg.className = 'msg ok';
-    msg.textContent = '绑定成功，邮箱已验证 ✔';
-    document.getElementById('emailCode').value = '';
-    showCodeRow(false);
-    // 重新拉取资料，刷新邮箱与状态徽标；头像也可能随邮箱变化
-    const data = await api('/me');
-    updateEmailStatus(data);
-    setAvatarFromUrl(document.getElementById('profileAvatar'), data.avatar, data.nickname, data.color);
-  } catch (err) {
-    msg.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// 保存修改：昵称 + 颜色 + 邮箱 → PUT /api/profile（邮箱变更由后端重置验证状态）
-async function saveProfile() {
-  const msg = document.getElementById('profileMsg');
-  const btn = document.getElementById('saveProfileBtn');
-  const nickname = document.getElementById('accNickname').value.trim();
-  const email = document.getElementById('accEmail').value.trim();
-  msg.className = 'msg error';
-  // 昵称校验：1-20 字符
-  if (!nickname || nickname.length > 20) {
-    msg.textContent = '昵称需为 1-20 个字符';
-    return;
-  }
-  // 非空时必须为合法邮箱地址（不限服务商）
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    msg.textContent = '请输入正确的邮箱地址';
-    return;
-  }
-  btn.disabled = true;
-  msg.textContent = '保存中…';
-  try {
-    // 邮箱随资料一并保存；若变更，后端会重置验证状态，右侧需重新验证
-    const body = { nickname: nickname, color: selectedColor || undefined, email: email };
-    const data = await api('/profile', { method: 'PUT', body: JSON.stringify(body) });
-    // 更新本地会话里的 nickname/color/avatar，供刷新后保持
-    const s = getSession();
-    if (s) {
-      s.nickname = data.nickname;
-      s.color = data.color;
-      s.avatar = data.avatar || null;
-      localStorage.setItem(LS_USER, JSON.stringify(s));
-    }
-    // 同步颜色对外展示（主卡渐变 / 大头像 / 右上色点 / 触发器）
-    document.documentElement.style.setProperty('--user-color', data.color);
-    updateColorUI(data.color);
-    syncColorTrigger(data.color);
-    document.getElementById('userColorText').textContent = '专属颜色';
-    // 昵称同步：欢迎语 + 头像回退首字
-    document.getElementById('welcomeText').textContent = data.nickname + '，欢迎回来 👋';
-    // 邮箱/颜色/昵称可能已变更：同步刷新头像（无链接自动回退首字）
-    setAvatarFromUrl(document.getElementById('profileAvatar'), data.avatar, data.nickname, data.color);
-    msg.className = 'msg ok';
-    msg.textContent = '资料已更新 ✔';
-    // 邮箱若变更，后端已重置验证状态 → 刷新右侧徽章与发码按钮
-    refreshEmailStatus();
-  } catch (err) {
-    msg.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// 点击"生成邀请码"：有未使用码直接显示，无则生成（一码制，防止生成过多）
-async function loadInviteCode() {
-  const codeEl = document.getElementById('inviteCodeText');
-  const copyBtn = document.getElementById('copyInviteBtn');
-  const hintEl = document.getElementById('inviteHint');
-  if (!codeEl) return;
-  codeEl.textContent = '加载中…';
-  if (copyBtn) copyBtn.disabled = true;
-  try {
-    const data = await api('/invite-code');
-    if (data && data.paused) {
-      codeEl.textContent = '邀请码生成已暂停';
-      if (hintEl) hintEl.textContent = '管理员已暂停邀请码生成，暂无法获取邀请码';
-    } else if (data && data.code) {
-      codeEl.textContent = data.code;
-      if (copyBtn) copyBtn.disabled = false;
-      if (hintEl) hintEl.textContent = '分享给朋友注册用，一个码只能注册一次';
-    } else {
-      codeEl.textContent = '暂无可用邀请码';
-      if (hintEl) hintEl.textContent = '点击「生成邀请码」创建一个';
-    }
-  } catch (err) {
-    codeEl.textContent = '获取失败';
-  }
-}
-
-// 复制邀请码
-function copyInviteCode() {
-  const codeEl = document.getElementById('inviteCodeText');
-  const text = codeEl.textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = document.getElementById('copyInviteBtn');
-    const old = btn.textContent;
-    btn.textContent = '已复制 ✅';
-    setTimeout(() => { btn.textContent = old; }, 1500);
-  }).catch(() => alert('复制失败，请手动复制'));
-}
-
-// 折叠卡：点击标题展开/收起
-function toggleCard(id) {
-  document.getElementById(id).classList.toggle('open');
-}
-
-// 修改密码：新密码 → PUT /api/password（凭登录态直接改）
-async function changePassword() {
-  const msg = document.getElementById('pwdMsg');
-  const btn = document.getElementById('changePwdBtn');
-  const newP = document.getElementById('newPassword').value;
-  const newP2 = document.getElementById('newPassword2').value;
-  msg.className = 'msg error';
-  if (!newP || !newP2) {
-    msg.textContent = '请填写所有字段';
-    return;
-  }
-  if (newP !== newP2) {
-    msg.textContent = '两次输入的新密码不一致';
-    return;
-  }
-  if (newP.length < 4 || newP.length > 50) {
-    msg.textContent = '新密码需为 4-50 个字符';
-    return;
-  }
-  btn.disabled = true;
-  msg.textContent = '修改中…';
-  try {
-    await api('/password', { method: 'PUT', body: JSON.stringify({ new_password: newP }) });
-    msg.className = 'msg ok';
-    msg.textContent = '密码已更新 ✔';
-    document.getElementById('newPassword').value = '';
-    document.getElementById('newPassword2').value = '';
-  } catch (err) {
-    msg.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// 登录设备：列出本账号全部会话（服务端已把 UA 解析成「系统 · 浏览器」），当前设备只显示徽标、不提供下线按钮
-async function loadSessions() {
-  var list = document.getElementById('sessionList');
-  if (!list) return;
-  try {
-    var data = await api('/sessions');
-    if (!data.sessions || !data.sessions.length) {
-      list.innerHTML = '<div class="empty">暂无登录设备</div>';
-      return;
-    }
-    list.innerHTML = data.sessions.map(function (s) {
-      var meta = '最后活跃 ' + fmtDateTime(s.last_seen_at) + ' · 登录于 ' + fmtDateTime(s.created_at);
-      var right = s.current
-        ? '<span class="badge-current">当前设备</span>'
-        // s.id 为服务端返回的整数 rowid，直接内联进 onclick（无字符串注入风险）
-        : '<button class="btn btn-ghost btn-sm" onclick="revokeSession(' + s.id + ')">下线</button>';
-      return '<div class="session-item' + (s.current ? ' current' : '') + '">'
-        + '<div><div class="dev"><span class="dot"></span>' + escapeHtml(s.device) + '</div>'
-        + '<div class="meta">' + meta + '</div></div>' + right + '</div>';
-    }).join('');
-  } catch (e) {
-    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
-  }
-}
-
-// 下线单个设备
-async function revokeSession(id) {
-  var msg = document.getElementById('sessionMsg');
-  msg.className = 'msg';
-  msg.textContent = '处理中…';
-  try {
-    await api('/sessions/revoke', { method: 'POST', body: JSON.stringify({ id: id }) });
-    msg.className = 'msg ok';
-    msg.textContent = '该设备已下线 ✔';
-    loadSessions();
-  } catch (e) {
-    msg.className = 'msg error';
-    msg.textContent = e.message;
-  }
-}
-
-// 下线除当前设备外的全部设备
-async function revokeOtherSessions() {
-  var msg = document.getElementById('sessionMsg');
-  msg.className = 'msg';
-  msg.textContent = '处理中…';
-  try {
-    var data = await api('/sessions/revoke-others', { method: 'POST' });
-    msg.className = 'msg ok';
-    msg.textContent = data.revoked ? '已下线其他 ' + data.revoked + ' 台设备 ✔' : '没有其他已登录设备';
-    loadSessions();
-  } catch (e) {
-    msg.className = 'msg error';
-    msg.textContent = e.message;
-  }
-}
-
-// 最近登录记录：渲染在「登录设备」卡底部的分区里（原独立「最近登录来源」卡已合并进来）
-async function loadLoginLog() {
-  var list = document.getElementById('loginLogList');
-  try {
-    var data = await api('/login-log');
-    if (!data.logs || !data.logs.length) {
-      list.innerHTML = '<div class="empty">暂无记录，登录后即可展示</div>';
-      return;
-    }
-    list.innerHTML = data.logs.map(function (log) {
-      // 已登记站点显示站点名；未登记站点显示来源 origin（仅记录不阻止）；无来源显示直接访问
-      var label = log.app_name || log.source_origin || '直接访问';
-      var via = log.app_name ? '' : 'direct';
-      return '<div class="login-item"><span class="app ' + via + '"><span class="dot"></span>' + escapeHtml(label) + '</span><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
-    }).join('');
-  } catch (e) {
-    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
-  }
-}
-
-function escapeHtml(t) {
-  var d = document.createElement('div');
-  d.textContent = t || '';
-  return d.innerHTML;
-}
-
-// 登录时间显示：数据库存 UTC，转本地时区后截到分钟（YYYY-MM-DD HH:MM）
-function fmtDateTime(v) {
-  if (!v) return '';
-  var s = String(v).replace('T', ' ');  // 'YYYY-MM-DD HH:MM:SS'（UTC）
-  var d = new Date(s.replace(' ', 'T') + 'Z');  // 按 UTC 解析
-  if (isNaN(d.getTime())) return s.slice(0, 16);
-  var p = function (n) { return n < 10 ? '0' + n : String(n); };
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
-}
-
-// 每次访问时验证本地凭证：加载期间显示加载界面，校验完再决定进账号中心还是未登录界面
-if (getSession()) {
-  api('/me')
-    .then(function (data) {
-      if (data && data.created_at) {
-        var s = String(data.created_at);
-        var d = new Date(s.replace(' ', 'T'));
-        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10)
-          : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
-      }
-      // 同步本地会话的 avatar（邮箱变更后 avatar 会更新；老用户本地无此字段时补齐）
-      var local = getSession();
-      if (local) {
-        local.avatar = data.avatar || null;
-        localStorage.setItem(LS_USER, JSON.stringify(local));
-      }
-      enterUserView(data.avatar);
-      loadProfileForm();
-      loadSessions();
-      loadLoginLog();
-      // 显示邀请码卡片（空态：点击"生成邀请码"才请求后端，不随页面自动生成）
-      var inviteCard = document.getElementById('inviteCodeCard');
-      if (inviteCard) inviteCard.style.display = '';
-    })
-    .catch(function () {
-      // token 失效：app.js 的 401 处理已清除本地会话并跳登录页；其余失败回未登录界面
-      showAuthView();
-    });
-} else {
-  // 无本地会话：直接展示未登录界面，无需请求
-  showAuthView();
-}
-</script>
+<script src="account.js" defer></script>
 </body>
 </html>
