@@ -1,6 +1,6 @@
 // Qxwk-Account 通行证 · 认证与工具（Worker 版）
 // 密码哈希使用 Web Crypto PBKDF2，零外部依赖
-// 复用自 Qxwk-CityFootprint/src/lib.js，createSession 追加过期会话清理
+// 复用自 Qxwk-CityFootprint/src/lib.js；会话为多会话模型（同账号多设备并存，可逐个下线）
 
 // 60 种 Material 调色板，保证新用户颜色不重复（直到池子占满）
 export const USER_COLORS = [
@@ -65,25 +65,62 @@ function generateToken() {
   return toHex(randomBytes(32));
 }
 
-// 创建会话：单会话/用户（重新登录轮换旧 token），并清理 90 天前的过期会话
-export async function createSession(DB, userId) {
+// 创建会话：多会话模型——同一账号可在多台设备同时登录，各自持有独立 token
+// userAgent 存原始串（设备名由 describeDevice 在后端集中解析）；last_seen_at 初值取创建时间
+// 注意：这里不再删除该用户的历史会话（多会话是有意设计）；「重置密码后踢掉所有设备」场景请显式调用 revokeAllSessions
+export async function createSession(DB, userId, userAgent) {
   const token = generateToken();
-  // 登录/注册时清理该用户旧会话，只保留最新一条（旧 token 立即失效）
-  await DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();
-  // 顺带清理 90 天前未使用的历史会话，防止 sessions 表无限膨胀
-  await DB.prepare("DELETE FROM sessions WHERE created_at < datetime('now', '-90 days')").run();
-  await DB.prepare('INSERT INTO sessions (token, user_id) VALUES (?, ?)')
-    .bind(token, userId).run();
+  await DB.prepare(
+    "INSERT INTO sessions (token, user_id, user_agent, last_seen_at) VALUES (?, ?, ?, datetime('now'))"
+  ).bind(token, userId, String(userAgent || '').trim() || null).run();
   return token;
 }
 
-// 从 Authorization: Bearer <token> 解析用户 id
-export async function getUserId(DB, request) {
+// 撤销该用户的全部会话（重置密码等安全场景：让所有设备一并登出）
+export async function revokeAllSessions(DB, userId) {
+  await DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();
+}
+
+// 取出 Authorization: Bearer <token> 中的 token（未携带则返回空串）
+export function getToken(request) {
   const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  return auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+}
+
+// UA 原始串 → 「系统 · 浏览器」展示名（后端集中一份，前端只消费此字符串）
+// 判定顺序敏感：Edge/Opera 的 UA 里同样含 "Chrome"、Chrome 的 UA 里含 "Safari"，所以必须先判更具体的
+export function describeDevice(ua) {
+  const s = String(ua || '');
+  if (!s) return '未知设备';
+  let os = '';
+  if (/Windows NT/.test(s)) os = 'Windows';
+  else if (/iPhone|iPad|iPod/.test(s)) os = 'iOS';
+  else if (/Android/.test(s)) os = 'Android';
+  else if (/Mac OS X/.test(s)) os = 'macOS';
+  else if (/Linux/.test(s)) os = 'Linux';
+  let browser = '';
+  if (/Edg[A-Za-z]*\//.test(s)) browser = 'Edge';
+  else if (/OPR\//.test(s)) browser = 'Opera';
+  else if (/Firefox\//.test(s)) browser = 'Firefox';
+  else if (/Chrome\//.test(s)) browser = 'Chrome';
+  else if (/Safari\//.test(s)) browser = 'Safari';
+  if (!os && !browser) return '未知设备';
+  return os && browser ? os + ' · ' + browser : (os || browser);
+}
+
+// 从 Authorization: Bearer <token> 解析用户 id，并节流滚动更新 last_seen_at
+// 节流原因：每个鉴权请求都写库会让 D1 产生大量无意义写入，故与上次记录相差超过 1 小时才更新一次
+export async function getUserId(DB, request) {
+  const token = getToken(request);
   if (!token) return null;
-  const row = await DB.prepare('SELECT user_id FROM sessions WHERE token = ?').bind(token).first();
-  return row ? row.user_id : null;
+  const row = await DB.prepare('SELECT user_id, last_seen_at FROM sessions WHERE token = ?').bind(token).first();
+  if (!row) return null;
+  // 库中为 UTC 的 'YYYY-MM-DD HH:MM:SS'，需按 UTC 解析；解析失败（历史 NULL）当作 0 → 立即补写一次
+  const last = Date.parse(String(row.last_seen_at || '').replace(' ', 'T') + 'Z') || 0;
+  if (Date.now() - last > 3600 * 1000) {
+    await DB.prepare("UPDATE sessions SET last_seen_at = datetime('now') WHERE token = ?").bind(token).run();
+  }
+  return row.user_id;
 }
 
 // 注册时分配颜色：按注册顺序（用户数）取色，超过 60 色循环

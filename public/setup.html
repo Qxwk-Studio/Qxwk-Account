@@ -165,10 +165,6 @@ body {
   transition: opacity 0.4s ease;
 }
 
-#start-text.lang-out {
-  opacity: 0;
-}
-
 @keyframes shimmer {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -329,13 +325,6 @@ const TITLE_WORDS = Object.fromEntries(
   GREETINGS.map(g => [g.key, g.key[0] + g.key.slice(1).toLowerCase()])
 );
 TITLE_WORDS.OLA = 'Olá';
-
-const START_WORDS = {
-  HELLO: 'Start', BONJOUR: 'Démarrer', HOLA: 'Iniciar',
-  CIAO: 'Avvia', HALLO: 'Start', ALOHA: 'Hoʻomaka',
-  HEJ: 'Starta', SHALOM: 'התחל', HOI: 'Start',
-  OLA: 'Iniciar', HEI: 'Start', SALUT: 'Începe', ZDRAVO: 'Покрени',
-};
 
 function getSvgDuration(svg) {
   const regex = /animation:draw\s+([\d.]+)s\s+([\d.]+)s\s+forwards/g;

@@ -5,11 +5,11 @@ import {
   hashPassword, verifyPassword, createSession, getUserId, assignColor,
   isValidNickname, isValidPassword, getAvatarUrl,
   genEmailCode, sendEmail, renderResetEmail, renderBrandEmail,
-  USER_COLORS,
+  USER_COLORS, getToken, describeDevice, revokeAllSessions,
 } from './lib.js';
 
 // ---------- CORS（全面放行：任意 Origin 都可跨域调用，鉴权靠 Bearer token） ----------
-// 对带 Origin 的请求回显 Access-Control-Allow-Origin（不再查 apps 白名单；来源由登录日志记录）
+// 对带 Origin 的请求回显 Access-Control-Allow-Origin
 async function corsHeaders(request, res) {
   const origin = request.headers.get('Origin');
   if (!origin) return res; // 同源/无浏览器上下文
@@ -19,22 +19,6 @@ async function corsHeaders(request, res) {
   h.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   h.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
-}
-
-// 校验 SSO 回调 redirect：必须是合法 http/https URL
-// 不再强制 apps 白名单：未登记的站点也允许回跳，仅记录日志（appId=null，origin 记入 source_origin）
-// 合法 URL 返回 { registered, appId?, appName, ... }；非法返回 { registered: false, reason }
-async function getSsoInfo(DB, redirect) {
-  let url;
-  try { url = new URL(redirect); } catch { return { registered: false, reason: 'redirect 不是合法 URL' }; }
-  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
-    return { registered: false, reason: '仅支持 http/https 链接' };
-  }
-  const base = url.origin + url.pathname;
-  const app = await DB.prepare('SELECT id, name, homepage FROM apps WHERE origin = ?')
-    .bind(url.origin).first();
-  if (!app) return { registered: false, appName: url.origin, appHomepage: url.origin, base };
-  return { registered: true, appId: app.id, appName: app.name, appHomepage: app.homepage, base };
 }
 
 // 生成一次性邀请码：8 位，去易混淆字符（I/O/0/1），32 字符表可整除 256 → 无偏
@@ -96,7 +80,7 @@ async function handleApi(request, env) {
       await DB.prepare('UPDATE invite_codes SET used_by = ? WHERE code = ?')
         .bind(userId, inviteCode).run();
     }
-    const token = await createSession(DB, userId);
+    const token = await createSession(DB, userId, request.headers.get('User-Agent'));
     return json({ token, userId, nickname, color, created_at: new Date().toISOString() }, 201);
   }
 
@@ -138,12 +122,11 @@ async function handleApi(request, env) {
     return json({ paused: false, code: row.code });
   }
 
-  // POST /api/login（可选 client_id：来源站点，写入 login_log）
+  // POST /api/login
   if (method === 'POST' && path === '/api/login') {
     const body = await request.json().catch(() => ({}));
     const account = String(body.nickname || body.account || '').trim();
     const password = String(body.password || '');
-    const clientId = Number(body.client_id) || null;
     if (!account) return error('请填写昵称或邮箱');
 
     // 昵称优先：先按昵称精确匹配；未命中再按邮箱（忽略大小写）匹配
@@ -158,11 +141,9 @@ async function handleApi(request, env) {
     const ok = await verifyPassword(password, user.password_hash);
     if (!ok) return error('帐号或密码不正确', 401);
 
-    const token = await createSession(DB, user.id);
-    // 登录来源日志（client_id 来自 SSO 流程；未登记站点 appId 为 null，origin 记入 source_origin）
-    const ssoOrigin = String(body.sso_origin || '').trim().slice(0, 200) || null;
-    await DB.prepare('INSERT INTO login_log (user_id, client_id, source_origin) VALUES (?, ?, ?)')
-      .bind(user.id, clientId, ssoOrigin).run();
+    const token = await createSession(DB, user.id, request.headers.get('User-Agent'));
+    // 登录日志（跨站 SSO 已下线：client_id / source_origin 不再写入，两列保留以兼容历史数据）
+    await DB.prepare('INSERT INTO login_log (user_id) VALUES (?)').bind(user.id).run();
     return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -179,10 +160,9 @@ async function handleApi(request, env) {
     if (user.password_hash) return error('该账号已设置密码，请直接登录', 409);
     const passwordHash = await hashPassword(newPassword);
     await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, user.id).run();
-    const token = await createSession(DB, user.id);
-    const ssoOrigin = String(body.sso_origin || '').trim().slice(0, 200) || null;
-    await DB.prepare('INSERT INTO login_log (user_id, client_id, source_origin) VALUES (?, ?, ?)')
-      .bind(user.id, null, ssoOrigin).run();
+    const token = await createSession(DB, user.id, request.headers.get('User-Agent'));
+    // 登录日志（与 /api/login 一致：SSO 下线后不再写来源两列）
+    await DB.prepare('INSERT INTO login_log (user_id) VALUES (?)').bind(user.id).run();
     return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -353,7 +333,8 @@ async function handleApi(request, env) {
     return json({ ok: true, msg: '验证码已发送，请查收邮箱' });
   }
 
-  // POST /api/forgot-reset（无需登录：校验重置码，通过后设置新密码并登录；旧会话随 createSession 轮换失效）
+  // POST /api/forgot-reset（无需登录：校验重置码，通过后设置新密码并登录）
+  // 安全语义：密码被重置说明账号可能已失守 → 显式撤销该用户全部旧会话（所有设备登出），再为当前请求签发新会话
   if (method === 'POST' && path === '/api/forgot-reset') {
     const body = await request.json().catch(() => ({}));
     const email = String(body.email || '').trim();
@@ -380,10 +361,11 @@ async function handleApi(request, env) {
     ).bind(row.id).run();
     if (done.meta.changes === 0) return error('验证码错误或已过期', 400);
 
-    // 更新密码 + 轮换会话（createSession 会删除该用户旧会话，重置后他处登录被登出）
+    // 更新密码 + 撤销全部旧会话（多会话下 createSession 不再自动踢人，需显式调用）
     const passwordHash = await hashPassword(newPassword);
     await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, user.id).run();
-    const token = await createSession(DB, user.id);
+    await revokeAllSessions(DB, user.id);
+    const token = await createSession(DB, user.id, request.headers.get('User-Agent'));
     return json({
       token, userId: user.id, nickname: user.nickname, color: user.color,
       email: user.email, avatar: getAvatarUrl(user.email), created_at: user.created_at,
@@ -391,6 +373,7 @@ async function handleApi(request, env) {
   }
 
   // PUT /api/password（登录：修改密码。凭 Bearer 会话直接改，新密码 4-50 字符）
+  // 与 /api/forgot-reset 不同：这里只改密码，保留当前会话、也不影响其他已登录设备（用户可在「登录设备」卡自行下线）
   if (method === 'PUT' && path === '/api/password') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
@@ -403,30 +386,71 @@ async function handleApi(request, env) {
     return json({ ok: true });
   }
 
-  // POST /api/logout（登录：撤销当前会话，幂等）
+  // POST /api/logout（登录：撤销当前会话，幂等；其他设备不受影响）
   if (method === 'POST' && path === '/api/logout') {
-    const auth = request.headers.get('Authorization') || '';
-    const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    const token = getToken(request);
     if (token) await DB.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
     return json({ ok: true });
   }
 
-  // GET /api/sso/info?redirect=<url>（SSO 前置校验：来源站点 + redirect 合法性）
-  if (method === 'GET' && path === '/api/sso/info') {
-    const info = await getSsoInfo(DB, url.searchParams.get('redirect') || '');
-    return json(info);
-  }
-
-  // GET /api/login-log（登录：最近登录来源，用户中心展示）
+  // GET /api/login-log（登录：最近登录记录，展示在账号中心「登录设备」卡底部）
+  // 跨站 SSO 已下线：client_id / source_origin 不再有新数据写入，历史行仍按原样返回
   if (method === 'GET' && path === '/api/login-log') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const logs = await DB.prepare(
-      `SELECT ll.created_at, a.name AS app_name, a.homepage, ll.source_origin
+      `SELECT ll.created_at, a.name AS app_name, ll.source_origin
        FROM login_log ll LEFT JOIN apps a ON ll.client_id = a.id
        WHERE ll.user_id = ? ORDER BY ll.id DESC LIMIT 5`
     ).bind(userId).all();
     return json({ logs: logs.results });
+  }
+
+  // GET /api/sessions（登录：本账号全部登录设备，供账号中心「登录设备」卡展示）
+  // id 用 sessions 的 rowid：该表是普通 rowid 表，无需额外加主键列即可作为稳定的下线标识
+  // 只返回 describeDevice 的展示名，不返回 token / UA 原始串（避免把可用凭证或指纹暴露给前端）
+  if (method === 'GET' && path === '/api/sessions') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    const token = getToken(request);
+    const rows = await DB.prepare(
+      `SELECT rowid AS id, token, user_agent, created_at,
+              COALESCE(last_seen_at, created_at) AS last_seen_at
+       FROM sessions WHERE user_id = ?
+       ORDER BY last_seen_at DESC, rowid DESC`
+    ).bind(userId).all();
+    return json({
+      sessions: rows.results.map((s) => ({
+        id: s.id,
+        device: describeDevice(s.user_agent),
+        created_at: s.created_at,
+        last_seen_at: s.last_seen_at,
+        current: s.token === token,
+      })),
+    });
+  }
+
+  // POST /api/sessions/revoke（登录：下线指定设备）
+  // WHERE 里同时限定 user_id：即便猜到他人的 rowid 也删不到别人的会话；当前设备不允许在此下线（否则把自己踢出去）
+  if (method === 'POST' && path === '/api/sessions/revoke') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    const body = await request.json().catch(() => ({}));
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return error('参数无效');
+    const del = await DB.prepare('DELETE FROM sessions WHERE rowid = ? AND user_id = ? AND token != ?')
+      .bind(id, userId, getToken(request)).run();
+    if (del.meta.changes === 0) return error('设备不存在或为当前设备', 404);
+    return json({ ok: true });
+  }
+
+  // POST /api/sessions/revoke-others（登录：下线除当前设备外的全部设备）
+  if (method === 'POST' && path === '/api/sessions/revoke-others') {
+    const userId = await getUserId(DB, request);
+    if (!userId) return error('未登录', 401);
+    const del = await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?')
+      .bind(userId, getToken(request)).run();
+    return json({ ok: true, revoked: del.meta.changes });
   }
 
   return null; // 不是已知 API 路由

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="strict-origin">
 <title>账号中心 - 青翔未阔工作室</title>
-<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息与最近登录来源。">
+<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与最近登录记录。">
 <link rel="icon" type="image/webp" href="/favicon.webp">
 <style>
   /* ========= Reset & Base ========= */
@@ -244,13 +244,6 @@
   }
   .user-color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); flex-shrink: 0; }
 
-  /* 账户信息行 */
-  .info-row { display: flex; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
-  .info-row:last-child { border-bottom: none; }
-  .info-row .k { width: 130px; flex-shrink: 0; color: var(--text-secondary); font-size: 0.86rem; }
-  .info-row .v { flex: 1; font-weight: 500; }
-  .info-row .v.mono { font-family: 'Consolas', 'Courier New', monospace; }
-
   /* 邀请码栏 */
   .invite-code-row { display: flex; align-items: center; gap: 10px; }
   .invite-code {
@@ -267,7 +260,7 @@
   }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* 最近登录来源 */
+  /* 最近登录记录（已合并进「登录设备」卡底部的 .sub-block） */
   .login-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
   .login-item:last-child { border-bottom: none; }
   .login-item .app { display: flex; align-items: center; gap: 8px; font-weight: 500; }
@@ -275,6 +268,19 @@
   .login-item .app.direct .dot { background: var(--text-tertiary); }
   .login-item .time { color: var(--text-tertiary); font-size: 0.8rem; }
   .empty { text-align: center; color: var(--text-tertiary); font-size: 0.84rem; padding: 14px 0; }
+
+  /* ========= 登录设备（多会话：可逐个下线） ========= */
+  .card-title-row .push-right { margin-left: auto; }
+  .session-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .session-item:last-child { border-bottom: none; }
+  .session-item .dev { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 0.9rem; }
+  .session-item .dev .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); flex-shrink: 0; }
+  .session-item.current .dev .dot { background: var(--primary); }
+  .session-item .meta { font-size: 0.76rem; color: var(--text-tertiary); margin-top: 3px; }
+  .badge-current { font-size: 0.72rem; font-weight: 600; color: var(--primary); background: var(--primary-light); padding: 2px 10px; border-radius: 40px; white-space: nowrap; }
+  /* 卡片内分区（如「登录设备」卡底部的最近登录记录）：分隔线 + 小标题 */
+  .sub-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .sub-block-title { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
 
   /* ========= Profile Form（修改个人资料） ========= */
   label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
@@ -307,7 +313,6 @@
   .card-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
   .card-title-row h3 { margin: 0; }
   .card-subtitle { font-size: 0.82rem; color: var(--text-secondary); margin: -8px 0 14px; }
-  .email-statuses { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
   .email-status {
     display: inline-flex;
     align-items: center;
@@ -326,18 +331,10 @@
   .email-status.empty .pulse { background: var(--text-tertiary); }
   :root[data-theme="dark"] .email-status.ok { color: #86efac; background: rgba(34, 197, 94, 0.16); }
   :root[data-theme="dark"] .email-status.pending { color: #fcd34d; background: rgba(245, 158, 11, 0.16); }
-  .verify-row { display: flex; gap: 10px; }
-  .verify-row input { flex: 1; }
-  .verify-row .btn { white-space: nowrap; flex-shrink: 0; }
   .code-row { display: none; flex-direction: column; gap: 10px; margin-top: 10px; }
   .code-row.show { display: flex; }
   .code-row input { width: 100%; }
   .code-row .btn { width: 100%; }
-
-  @media (max-width: 640px) {
-    .verify-row { flex-direction: column; }
-    .verify-row .btn { width: 100%; }
-  }
 
   /* ========= 修改个人资料：不可折叠 ========= */
   .card-profile-edit > .profile-edit-title {
@@ -495,27 +492,8 @@
     border: 1px solid var(--border);
   }
   .btn-ghost:hover { background: var(--border); color: var(--text-primary); }
-  .btn-danger {
-    background: var(--surface);
-    color: #dc2626;
-    border: 1px solid #fecaca;
-  }
-  .btn-danger:hover { background: #fef2f2; border-color: #fca5a5; }
   .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 6px; }
   .msg { font-size: 0.84rem; margin-top: 10px; }
-
-  /* ========= 登录弹层（内嵌 iframe） ========= */
-  .login-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .login-modal-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); cursor: pointer; }
-  .login-modal-dialog { position: relative; width: 100%; max-width: 420px; background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
-  .login-modal-close { position: absolute; top: 10px; right: 12px; z-index: 5; width: 30px; height: 30px; border: none; border-radius: 50%; background: rgba(255, 255, 255, 0.75); color: var(--text-secondary); font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-  .login-modal-close:hover { background: var(--surface); color: var(--text-primary); }
-  #loginFrame { width: 100%; height: 560px; border: 0; display: block; }
-  @media (max-width: 640px) {
-    .login-modal { padding: 12px; align-items: flex-end; }
-    .login-modal-dialog { max-width: 100%; border-radius: var(--radius-md) var(--radius-md) 0 0; }
-    #loginFrame { height: 72vh; }
-  }
 
   /* ========= 退出登录：大卡片 ========= */
   .card-logout {
@@ -652,8 +630,6 @@
     border-color: color-mix(in srgb, var(--user-color, #2563eb) 28%, #334155);
   }
   :root[data-theme="dark"] .user-color-dot { border-color: #0f172a; }
-  :root[data-theme="dark"] .btn-danger { background:#1e293b; border-color: rgba(239,68,68,0.4); }
-  :root[data-theme="dark"] .btn-danger:hover { background: rgba(239,68,68,0.12); }
 
   /* ===== 黑夜模式：修改资料表单 + 色板 + 退出卡 ===== */
   :root[data-theme="dark"] input { background: var(--surface); color: var(--text-primary); }
@@ -707,7 +683,7 @@
     <div class="auth-form">
       <h2 class="auth-title">你还没有登录</h2>
       <p class="auth-subtitle">登录后才能查看你的通行证账号信息</p>
-      <button type="button" class="btn btn-primary" onclick="openLoginModal()">去登录 / 注册</button>
+      <button type="button" class="btn btn-primary" onclick="location.href='login.html'">去登录 / 注册</button>
       <div class="msg" id="authMsg"></div>
     </div>
   </div>
@@ -825,17 +801,26 @@
           </div>
         </div>
 
-        <!-- 最近登录来源 -->
-        <div class="card">
-          <h3>🕘 最近登录来源</h3>
-          <div id="loginLogList"><div class="empty">正在加载…</div></div>
+        <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线；底部合并了「最近登录记录」） -->
+        <div class="card" id="sessionCard">
+          <div class="card-title-row">
+            <h3>💻 登录设备</h3>
+            <button class="btn btn-ghost btn-sm push-right" onclick="revokeOtherSessions()">下线其他所有设备</button>
+          </div>
+          <div class="card-subtitle">这些设备已登录你的账号，发现可疑设备可立即下线</div>
+          <div id="sessionList"><div class="empty">正在加载…</div></div>
+          <div class="msg" id="sessionMsg"></div>
+          <div class="sub-block">
+            <div class="sub-block-title">🕘 最近登录记录</div>
+            <div id="loginLogList"><div class="empty">正在加载…</div></div>
+          </div>
         </div>
 
         <!-- 退出登录：大卡片 -->
         <div class="card-logout">
           <h3>退出登录</h3>
           <div class="logout-tip">
-            退出后在本站及其他已接入的站点都将需要重新登录
+            退出后在本站需重新登录，其他设备不受影响
           </div>
           <button class="btn-logout" onclick="logout()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -844,15 +829,6 @@
         </div>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- 登录弹层（内嵌 iframe，登录页以 embedded 模式回传 token） -->
-<div class="login-modal" id="loginModal" style="display:none;">
-  <div class="login-modal-backdrop" data-close="1"></div>
-  <div class="login-modal-dialog" role="dialog" aria-modal="true" aria-label="登录">
-    <button type="button" class="login-modal-close" onclick="closeLoginModal()" aria-label="关闭">✕</button>
-    <iframe id="loginFrame" src="" title="登录 Qxwk 通行证"></iframe>
   </div>
 </div>
 
@@ -885,56 +861,6 @@ function showAuthView() {
   document.getElementById('loadingView').style.display = 'none';
   document.getElementById('authView').style.display = '';
 }
-
-/* ---------- 登录弹层（内嵌 iframe） ---------- */
-function openLoginModal() {
-  var frame = document.getElementById('loginFrame');
-  // redirect 传弹层宿主自身 URL：登录页用其 origin 作为回传 targetOrigin（同为通行证域，便于同源校验）
-  frame.src = 'login.html?redirect=' + encodeURIComponent(location.href) + '&embedded=1';
-  document.getElementById('loginModal').style.display = 'flex';
-}
-
-function closeLoginModal() {
-  document.getElementById('loginModal').style.display = 'none';
-  document.getElementById('loginFrame').src = ''; // 卸载 iframe，停止登录页运行
-}
-
-// 接收内嵌登录页回传的 token：仅接受通行证同源来源；用 /api/me 校验后进入账号中心
-window.addEventListener('message', function (e) {
-  if (!e.data || !e.origin) return;
-  if (e.origin !== window.location.origin) return; // 只信任通行证同源回传
-  if (e.data.type === 'qxwk-sso-cancel') { closeLoginModal(); return; } // 授权页点「否」/取消
-  if (e.data.type !== 'qxwk-sso' || !e.data.token) return;
-  var token = e.data.token;
-  closeLoginModal();
-  api('/me')
-    .then(function (data) {
-      saveSession({
-        token: token,
-        userId: data.userId,
-        nickname: data.nickname,
-        color: data.color,
-        avatar: data.avatar || null,
-      });
-      if (data.created_at) {
-        var s = String(data.created_at);
-        var d = new Date(s.replace(' ', 'T'));
-        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10)
-          : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
-      }
-      enterUserView(data.avatar);
-      loadProfileForm();
-      loadLoginLog();
-      var inviteCard = document.getElementById('inviteCodeCard');
-      if (inviteCard) inviteCard.style.display = '';
-    })
-    .catch(function () { showAuthView(); }); // token 校验失败：回未登录界面
-});
-
-// 点击遮罩关闭弹层
-document.addEventListener('click', function (e) {
-  if (e.target.hasAttribute && e.target.hasAttribute('data-close')) closeLoginModal();
-});
 
 function enterUserView(avatarUrl) {
   document.getElementById('loadingView').style.display = 'none';
@@ -1281,7 +1207,64 @@ async function changePassword() {
   }
 }
 
-// 最近登录来源
+// 登录设备：列出本账号全部会话（服务端已把 UA 解析成「系统 · 浏览器」），当前设备只显示徽标、不提供下线按钮
+async function loadSessions() {
+  var list = document.getElementById('sessionList');
+  if (!list) return;
+  try {
+    var data = await api('/sessions');
+    if (!data.sessions || !data.sessions.length) {
+      list.innerHTML = '<div class="empty">暂无登录设备</div>';
+      return;
+    }
+    list.innerHTML = data.sessions.map(function (s) {
+      var meta = '最后活跃 ' + fmtDateTime(s.last_seen_at) + ' · 登录于 ' + fmtDateTime(s.created_at);
+      var right = s.current
+        ? '<span class="badge-current">当前设备</span>'
+        // s.id 为服务端返回的整数 rowid，直接内联进 onclick（无字符串注入风险）
+        : '<button class="btn btn-ghost btn-sm" onclick="revokeSession(' + s.id + ')">下线</button>';
+      return '<div class="session-item' + (s.current ? ' current' : '') + '">'
+        + '<div><div class="dev"><span class="dot"></span>' + escapeHtml(s.device) + '</div>'
+        + '<div class="meta">' + meta + '</div></div>' + right + '</div>';
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
+  }
+}
+
+// 下线单个设备
+async function revokeSession(id) {
+  var msg = document.getElementById('sessionMsg');
+  msg.className = 'msg';
+  msg.textContent = '处理中…';
+  try {
+    await api('/sessions/revoke', { method: 'POST', body: JSON.stringify({ id: id }) });
+    msg.className = 'msg ok';
+    msg.textContent = '该设备已下线 ✔';
+    loadSessions();
+  } catch (e) {
+    msg.className = 'msg error';
+    msg.textContent = e.message;
+  }
+}
+
+// 下线除当前设备外的全部设备
+async function revokeOtherSessions() {
+  var msg = document.getElementById('sessionMsg');
+  msg.className = 'msg';
+  msg.textContent = '处理中…';
+  try {
+    var data = await api('/sessions/revoke-others', { method: 'POST' });
+    msg.className = 'msg ok';
+    msg.textContent = data.revoked ? '已下线其他 ' + data.revoked + ' 台设备 ✔' : '没有其他已登录设备';
+    loadSessions();
+  } catch (e) {
+    msg.className = 'msg error';
+    msg.textContent = e.message;
+  }
+}
+
+// 最近登录记录：渲染在「登录设备」卡底部的分区里（原独立「最近登录来源」卡已合并进来）
 async function loadLoginLog() {
   var list = document.getElementById('loginLogList');
   try {
@@ -1335,6 +1318,7 @@ if (getSession()) {
       }
       enterUserView(data.avatar);
       loadProfileForm();
+      loadSessions();
       loadLoginLog();
       // 显示邀请码卡片（空态：点击"生成邀请码"才请求后端，不随页面自动生成）
       var inviteCard = document.getElementById('inviteCodeCard');
