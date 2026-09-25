@@ -16,12 +16,17 @@ CREATE TABLE IF NOT EXISTS users (
 -- 多会话模型：同一账号可在多台设备同时登录，各持独立 token，可逐个或一键下线（不再「重新登录轮换旧会话」）
 -- user_agent = 登录时的 UA 原始串（设备名由后端 describeDevice() 解析；NULL = 未知设备）
 -- last_seen_at = 最后活跃时间，鉴权请求时节流滚动更新（与上次相差 >1 小时才写库）；查询时用 COALESCE(last_seen_at, created_at) 回退
--- client_id = 本次登录来源站点（apps.id；NULL = 通行证直连登录，非第三方站点带来）→ 账号中心「已授权网站」卡按它聚合
+-- 来源两列互斥，合起来划清「登录设备」与「已授权网站」两张卡的分界（两张卡覆盖全部会话，不重不漏）：
+--   client_id    = 命中 apps 白名单的来源站点（apps.id）；NULL 表示不是已登记站点带来的
+--   client_label = **未登记**来源的原始串（调用方自报的 client 值 / 请求 Origin 头，截断 100 字符）。
+--                  它是自报值、不可当权威，界面须标「未登记来源」；批量注销靠它精确匹配
+--   两列都为 NULL = 通行证本站直连登录 → 账号中心「登录设备」卡；只要有一列非 NULL → 「已授权网站」卡
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
   user_agent TEXT,
   client_id INTEGER,
+  client_label TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   last_seen_at TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id),
@@ -42,8 +47,8 @@ CREATE TABLE IF NOT EXISTS apps (
 CREATE TABLE IF NOT EXISTS login_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
-  client_id INTEGER,                    -- NULL = 直连登录（未经过具体站点）
-  source_origin TEXT,                   -- 来源 origin：未登记（未验证）站点的回调地址，仅记录不阻止
+  client_id INTEGER,                    -- NULL = 直连登录 / 未登记来源
+  source_origin TEXT,                   -- 未登记来源的原始串（同 sessions.client_label），仅作展示、不参与鉴权
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (client_id) REFERENCES apps(id)

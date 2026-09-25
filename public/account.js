@@ -429,16 +429,18 @@ async function revokeOtherSessions() {
   }
 }
 
-// 已授权网站：服务端按 sessions.client_id 聚合出「本账号在这些站点各有几处登录」
-// 每个站点可展开看它的登录设备（<details> 原生展开，不用 JS），可整站注销，也可在展开后按设备单独下线
-// 只含经过 apps 白名单登记的第三方站点；通行证直连登录（client_id 为 NULL）归「登录设备」卡
+// 已授权网站：服务端按来源聚合出「本账号在这些站点/应用各有几处登录」
+// 覆盖「不是在本站直接登录」的全部会话：已登记站点（有站点名/origin）+ 未登记来源（名字是调用方
+// 自报的原始串，服务端给 unregistered=true，这里标成「未登记来源」）+ 已移出白名单的站点（「已移除的站点」）
+// 每个来源可展开看它的登录设备（<details> 原生展开，不用 JS），可整站注销，也可在展开后按设备单独下线
+// 在本站直接登录的设备（来源两列皆空）归「登录设备」卡，两张卡不重不漏
 async function loadClients() {
   var list = document.getElementById('clientList');
   if (!list) return;
   try {
     var data = await api('/clients');
     if (!data.clients || !data.clients.length) {
-      list.innerHTML = '<div class="empty">暂无通过其他网站登录的记录</div>';
+      list.innerHTML = '<div class="empty">暂无来自其他网站或应用的登录</div>';
       return;
     }
     list.innerHTML = data.clients.map(function (c) {
@@ -450,7 +452,10 @@ async function loadClients() {
         return '<div class="site-dev"><div class="meta">' + escapeHtml(s.device)
           + ' · 最后活跃 ' + fmtDateTime(s.last_seen_at) + '</div>' + btn + '</div>';
       }).join('');
-      var head = escapeHtml(c.origin) + ' · ' + c.session_count + ' 处登录 · 最近活跃 ' + fmtDateTime(c.last_seen_at);
+      // 来源副标题：已登记站点显示 origin；未登记来源 / 已移除站点没有 origin，改成显式标注——
+      // 既不渲染出 "null"，也提醒用户这个名字是调用方自报的，不可当权威
+      var src = c.unregistered ? '未登记来源 · ' : (c.origin ? escapeHtml(c.origin) + ' · ' : '');
+      var head = src + c.session_count + ' 处登录 · 最近活跃 ' + fmtDateTime(c.last_seen_at);
       return '<div class="session-item">'
         + '<div style="min-width:0;flex:1">'
         + '<details class="site"><summary>'
@@ -458,8 +463,8 @@ async function loadClients() {
         + '<span class="meta">' + head + '</span>'
         + '</summary><div class="site-devs">' + devs + '</div></details>'
         + '</div>'
-        // c.id 为 apps 表的整数主键，作为 data-id 交给委托取值（无字符串注入风险）
-        + '<button class="btn btn-ghost btn-sm" data-action="revokeClient" data-id="' + c.id + '">注销登录</button>'
+        // c.id 对已登记站点是 apps.id（数字），对未登记来源是原始串（字符串），所以必须转义后再放进属性
+        + '<button class="btn btn-ghost btn-sm" data-action="revokeClient" data-id="' + escapeHtml(String(c.id)) + '">注销登录</button>'
         + '</div>';
     }).join('');
   } catch (e) {
@@ -493,8 +498,9 @@ async function loadLoginLog() {
       return;
     }
     list.innerHTML = data.logs.map(function (log) {
-      // 已登记站点显示站点名；未登记站点显示来源 origin（仅记录不阻止）；无来源显示直接访问
-      var label = log.app_name || log.source_origin || '直接访问';
+      // 已登记站点显示站点名；未登记来源显示原始串并标「未登记」（名字是调用方自报的）；两者都无 = 直接访问
+      var label = log.app_name ? log.app_name
+        : (log.source_origin ? log.source_origin + '（未登记）' : '直接访问');
       var via = log.app_name ? '' : 'direct';
       return '<div class="login-item"><span class="app ' + via + '"><span class="dot"></span>' + escapeHtml(label) + '</span><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
     }).join('');

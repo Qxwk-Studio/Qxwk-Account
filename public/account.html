@@ -793,7 +793,7 @@
             <h3>💻 登录设备</h3>
             <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions">下线其他所有设备</button>
           </div>
-          <div class="card-subtitle">直接在通行证登录的设备；通过其他网站登录的会话见下方「已授权网站」</div>
+          <div class="card-subtitle">只显示在通行证本站直接登录的设备；凡来自其他网站 / 应用的登录都在下方「已授权网站」卡</div>
           <div id="sessionList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="sessionMsg"></div>
           <div class="sub-block">
@@ -802,13 +802,14 @@
           </div>
         </div>
 
-        <!-- 已授权网站（按来源站点聚合本账号的会话，可整站注销登录；数据来自 sessions.client_id）
-             站点会话不在「登录设备」卡里，点站点名展开即看该站点的登录设备 -->
+        <!-- 已授权网站（账号中心里「不是在通行证本站直接登录」的会话全归这里，可整来源注销；
+             数据来自 sessions.client_id（已登记站点）+ sessions.client_label（未登记来源）+
+             apps 里已查不到的 client_id（标「已移除的站点」）） -->
         <div class="card" id="clientCard">
           <div class="card-title-row">
             <h3>🌐 已授权网站</h3>
           </div>
-          <div class="card-subtitle">这些网站可用你的通行证账号登录；点站点名可展开查看它的登录设备，注销后需在该网站重新登录</div>
+          <div class="card-subtitle">除本站直接登录外，拿着你通行证登录的其他网站 / 应用都在这里；点名称可展开查看它的登录设备，注销后需在该处重新登录。标「未登记来源」的是调用方自报的名字（未经本站登记）</div>
           <div id="clientList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="clientMsg"></div>
         </div>

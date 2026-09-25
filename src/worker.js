@@ -82,9 +82,10 @@ async function handleApi(request, env) {
       await DB.prepare('UPDATE invite_codes SET used_by = ? WHERE code = ?')
         .bind(userId, inviteCode).run();
     }
-    // 来源站点：显式 body.client 优先，否则读 Origin 头；必须在 apps 白名单内才记录（见 lib.js resolveClient）
-    const clientId = await resolveClient(DB, request, body.client);
-    const token = await createSession(DB, userId, request.headers.get('User-Agent'), clientId);
+    // 来源站点：显式 body.client 优先，否则读 Origin 头；命中 apps 白名单记 client_id，
+    // 未命中的记 client_label（界面标「未登记来源」）；两者皆无 = 本站直连登录（见 lib.js resolveClient）
+    const src = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, userId, request.headers.get('User-Agent'), src.id, src.label);
     // 与登录保持同一响应字段（新注册无邮箱 → email/avatar 均为 null），避免前端两处处理分支
     return json({ token, userId, nickname, color, email: null, avatar: null, created_at: new Date().toISOString() }, 201);
   }
@@ -168,11 +169,14 @@ async function handleApi(request, env) {
     }
 
     await clearLoginFails(DB, accountKey); // 登录成功：清掉失败记录
-    // 来源站点：显式 body.client 优先，否则读 Origin 头；必须在 apps 白名单内才记录（见 lib.js resolveClient）
-    const clientId = await resolveClient(DB, request, body.client);
-    const token = await createSession(DB, user.id, request.headers.get('User-Agent'), clientId);
-    // 登录日志：记下来源站点（client_id），账号中心「最近登录记录」据此显示站点名；未登记的来源为 NULL → 显示「直接访问」
-    await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)').bind(user.id, clientId).run();
+    // 来源站点：显式 body.client 优先，否则读 Origin 头；命中 apps 白名单记 client_id，
+    // 未命中的记 client_label（界面标「未登记来源」）；两者皆无 = 本站直连登录（见 lib.js resolveClient）
+    const src = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, user.id, request.headers.get('User-Agent'), src.id, src.label);
+    // 登录日志：已登记站点记 client_id（展示站点名），未登记来源记 source_origin（展示原始串）；
+    // 两者都没有 = 直连登录，账号中心显示「直接访问」
+    await DB.prepare('INSERT INTO login_log (user_id, client_id, source_origin) VALUES (?, ?, ?)')
+      .bind(user.id, src.id, src.label).run();
     return json({ token, userId: user.id, nickname: user.nickname, color: user.color, email: user.email, avatar: await getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -376,12 +380,13 @@ async function handleApi(request, env) {
     const passwordHash = await hashPassword(newPassword);
     await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, owner.id).run();
     await revokeAllSessions(DB, owner.id);
-    // 重置后签发的会话同样记录来源站点（若用户是在某站点里走的重置流程）
-    const clientId = await resolveClient(DB, request, body.client);
-    const token = await createSession(DB, owner.id, request.headers.get('User-Agent'), clientId);
+    // 重置后签发的会话同样记录来源（若用户是在某站点里走的重置流程）
+    const src = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, owner.id, request.headers.get('User-Agent'), src.id, src.label);
     // 登录日志与 /api/login 一致（重置成功也是「一次登录」）；顺带清掉该账号的失败限流记录：
     // 用户往往正是「撞上锁定 → 走邮箱重置」进来的，不清的话他重置完仍会被锁 15 分钟登不进去
-    await DB.prepare('INSERT INTO login_log (user_id, client_id) VALUES (?, ?)').bind(owner.id, clientId).run();
+    await DB.prepare('INSERT INTO login_log (user_id, client_id, source_origin) VALUES (?, ?, ?)')
+      .bind(owner.id, src.id, src.label).run();
     await clearLoginFails(DB, String(owner.nickname || '').toLowerCase());
     if (owner.email) await clearLoginFails(DB, String(owner.email).toLowerCase());
     return json({
@@ -414,7 +419,7 @@ async function handleApi(request, env) {
   }
 
   // GET /api/login-log（登录：最近登录记录，展示在账号中心「登录设备」卡底部）
-  // 每条带来源站点名（client_id → apps.name）；未登记来源 / 直连登录为 NULL，前端显示「直接访问」
+  // 每条带来源：命中白名单的取 apps.name，未登记来源取 source_origin（原始串），两者都无则「直接访问」
   if (method === 'GET' && path === '/api/login-log') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
@@ -426,9 +431,10 @@ async function handleApi(request, env) {
     return json({ logs: logs.results });
   }
 
-  // GET /api/sessions（登录：本账号「直连登录」的设备，供账号中心「登录设备」卡展示）
-  // 只列 client_id IS NULL 的会话（在通行证/App 上直接登录的设备）；从第三方站点带 client 来的会话
-  // 一律归「已授权网站」卡（GET /api/clients），两张卡各管一类、信息不重叠
+  // GET /api/sessions（登录：本账号「在本站直接登录」的设备，供账号中心「登录设备」卡展示）
+  // 只列 client_id 与 client_label **都为空**的会话（＝在通行证本站/App 上直接登录，没有任何第三方来源证据）；
+  // 凡带来源标识（已登记站点记 client_id、未登记来源记 client_label）的会话一律归「已授权网站」卡
+  // （GET /api/clients）——两张卡合起来覆盖全部会话，既不重叠也不漏，没有「哪张卡都看不到」的会话
   // id 用 sessions 的 rowid：该表是普通 rowid 表，无需额外加主键列即可作为稳定的下线标识
   // 只返回 describeDevice 的展示名，不返回 token / UA 原始串（避免把可用凭证或指纹暴露给前端）
   if (method === 'GET' && path === '/api/sessions') {
@@ -439,7 +445,7 @@ async function handleApi(request, env) {
     const rows = await DB.prepare(
       `SELECT rowid AS id, token, user_agent, created_at,
               COALESCE(last_seen_at, created_at) AS last_seen_at
-       FROM sessions WHERE user_id = ? AND client_id IS NULL
+       FROM sessions WHERE user_id = ? AND client_id IS NULL AND client_label IS NULL
        ORDER BY last_seen_at DESC, rowid DESC`
     ).bind(userId).all();
     return json({
@@ -476,49 +482,68 @@ async function handleApi(request, env) {
     return json({ ok: true, revoked: del.meta.changes });
   }
 
-  // POST /api/clients/revoke（登录：注销某网站的登录 = 撤销本账号在该来源站点的全部会话）
-  // 与 /api/sessions/revoke（按设备）互补：这里是按站点批量撤销。
+  // POST /api/clients/revoke（登录：注销某来源的登录 = 撤销本账号在该来源的全部会话）
+  // 与 /api/sessions/revoke（按设备）互补：这里是按来源批量撤销。id 直接取 GET /api/clients 返回的 id：
+  //   纯数字 → apps.id（已登记站点），按 client_id 匹配
+  //   其它   → 未登记来源的原始串，按 client_label 匹配（**必须**再限定 client_id IS NULL，
+  //            否则万一某站点名与数字 id 同形，会把已登记站点的会话一并删掉）
+  // 已知取舍：未登记来源若恰好是纯数字（比如某 App 名叫「123」），会被当成 apps.id 去找，命中不了就返回 404，
+  //   不会误删；这类站点建议登记进 apps 白名单，别指望靠自报名字注销。
   // WHERE 同时限定 user_id：猜到他站的 apps.id 也删不到别人的会话。
-  // 若当前会话本身就来自该站点（例如站点内直接调本接口），它会被一并撤销——这正是「取消该网站登录」应有的语义；
-  // 账号中心的调用是同源的（client_id 为 NULL），所以不会把自己踢下线。
+  // 若当前会话本身就来自该来源（例如站点内直接调本接口），它会被一并撤销——这正是「取消该来源登录」应有的语义；
+  // 账号中心的调用是同源的（来源两列皆空），所以不会把自己踢下线。
   if (method === 'POST' && path === '/api/clients/revoke') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const body = await request.json().catch(() => ({}));
-    const clientId = Number(body.id);
-    if (!Number.isInteger(clientId)) return error('参数无效');
-    const del = await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND client_id = ?')
-      .bind(userId, clientId).run();
-    if (del.meta.changes === 0) return error('该网站没有活跃登录', 404);
+    const raw = String(body.id === undefined || body.id === null ? '' : body.id).trim();
+    if (!raw) return error('参数无效');
+    const del = /^\d+$/.test(raw)
+      ? await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND client_id = ?').bind(userId, Number(raw)).run()
+      : await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND client_id IS NULL AND client_label = ?').bind(userId, raw).run();
+    if (del.meta.changes === 0) return error('该来源没有活跃登录', 404);
     return json({ ok: true, revoked: del.meta.changes });
   }
 
-  // GET /api/clients（登录：已授权网站列表 + 每站各自的登录设备，按站点聚合）
-  // 只列 client_id 命中 apps 白名单的会话；通行证直连登录（client_id IS NULL）不属于任何站点，
-  // 归「登录设备」卡（GET /api/sessions），两卡互不重叠
-  // sessions 子数组给前端「展开该站点看设备」用：每条含 rowid（下线标识）/设备名/时间/是否当前设备
+  // GET /api/clients（登录：已授权来源列表 + 每处各自的登录设备，按来源聚合）
+  // 覆盖范围 = 「不是在本站直接登录」的全部会话（补集），三条来源一起列：
+  //   ① client_id 命中 apps 白名单的已登记站点（借 apps 拿站点名 / origin / homepage）
+  //   ② client_id 有值但 apps 里已查不到的行（该站点后来被移出白名单）——没有名字可用，标「已移除的站点」
+  //   ③ client_id 为空、client_label 有值的未登记来源——名字就是调用方自报的原始串，标「未登记来源」
+  // 通行证本站直连登录（两列皆空）不属于任何来源，归「登录设备」卡（GET /api/sessions）。
+  // 故这里**必须**用 LEFT JOIN：用 JOIN 时 ② 会被静默丢掉，那种会话两张卡都看不到、也就永远注销不掉。
+  // sessions 子数组给前端「展开该来源看设备」用：每条含 rowid（下线标识）/设备名/时间/是否当前设备
   if (method === 'GET' && path === '/api/clients') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const tokenKey = await getSessionKey(DB, request);
     const rows = await DB.prepare(
-      `SELECT s.rowid AS id, s.token, s.user_agent, s.created_at, s.client_id,
+      `SELECT s.rowid AS id, s.token, s.user_agent, s.created_at, s.client_id, s.client_label,
               COALESCE(s.last_seen_at, s.created_at) AS last_seen_at,
               a.name, a.origin, a.homepage
-       FROM sessions s JOIN apps a ON a.id = s.client_id
-       WHERE s.user_id = ?
+       FROM sessions s LEFT JOIN apps a ON a.id = s.client_id
+       WHERE s.user_id = ? AND (s.client_id IS NOT NULL OR s.client_label IS NOT NULL)
        ORDER BY last_seen_at DESC`
     ).bind(userId).all();
-    // 按站点聚合；行已按 last_seen_at 降序，故首个出现的站点即「最近活跃」，Map 的插入顺序天然就是展示顺序
+    // 按来源聚合；行已按 last_seen_at 降序，故首个出现的来源即「最近活跃」，Map 的插入顺序天然就是展示顺序。
+    // 聚合键：已登记站点用 client_id（数字），其余用 client_label（字符串）——前缀区分，避免 "3" 与 3 撞键
     const byClient = new Map();
     for (const r of rows.results) {
-      if (!byClient.has(r.client_id)) {
-        byClient.set(r.client_id, {
-          id: r.client_id, name: r.name, origin: r.origin, homepage: r.homepage,
+      const registered = r.client_id !== null && r.client_id !== undefined;
+      const key = registered ? 'c' + r.client_id : 'l' + r.client_label;
+      if (!byClient.has(key)) {
+        byClient.set(key, {
+          // id 就是前端注销时要回传的值：已登记站点 = apps.id，未登记来源 = 原始串（见本文件 revoke 分支）
+          id: registered ? r.client_id : r.client_label,
+          // ② 没有 apps 行 → name/origin 都是 NULL，给个能自解释的兜底名，别让前端渲染出 "null"
+          name: registered ? (r.name || '已移除的站点') : r.client_label,
+          origin: r.origin,
+          homepage: r.homepage,
+          unregistered: !registered,   // true = 名字是调用方自报的，界面须标注「未登记来源」
           session_count: 0, last_seen_at: r.last_seen_at, sessions: [],
         });
       }
-      const c = byClient.get(r.client_id);
+      const c = byClient.get(key);
       c.session_count++;
       c.sessions.push({
         id: r.id,

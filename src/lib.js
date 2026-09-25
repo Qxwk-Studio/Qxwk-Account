@@ -111,13 +111,20 @@ export async function resolveSession(DB, rawToken) {
 
 // 创建会话：多会话模型——同一账号可在多台设备同时登录，各自持有独立 token
 // userAgent 存原始串（设备名由 describeDevice 在后端集中解析）；last_seen_at 初值取创建时间
-// clientId = 登录来源站点（apps.id），NULL 表示通行证直连登录；账号中心「已授权网站」卡按它聚合
+// clientId = 登录来源站点（apps.id），clientLabel = 未登记来源的原始串（见 resolveClient）。
+// 二者互斥：命中白名单就只记 clientId，未命中就只记 clientLabel；都为空 = 通行证直连登录。
+// 账号中心「登录设备」卡只收「两者都为空」的会话，其余一律归「已授权网站」卡（两张卡合起来覆盖全部会话）
 // 注意：这里不再删除该用户的历史会话（多会话是有意设计）；「重置密码后踢掉所有设备」场景请显式调用 revokeAllSessions
-export async function createSession(DB, userId, userAgent, clientId = null) {
+export async function createSession(DB, userId, userAgent, clientId = null, clientLabel = null) {
   const token = generateToken();
   await DB.prepare(
-    "INSERT INTO sessions (token, user_id, user_agent, client_id, last_seen_at) VALUES (?, ?, ?, ?, datetime('now'))"
-  ).bind(await hashToken(token), userId, String(userAgent || '').trim() || null, clientId || null).run();
+    "INSERT INTO sessions (token, user_id, user_agent, client_id, client_label, last_seen_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
+  ).bind(
+    await hashToken(token), userId, String(userAgent || '').trim() || null,
+    clientId || null,
+    // 归一化放这里：白名单站点不再重复记标签，避免同一个会话出现两种来源表示
+    clientId ? null : (clientLabel || null)
+  ).run();
   // 顺带回收「长期没人用」的会话：90 天未活跃（无 last_seen_at 的老行按创建时间算）即删除。
   // 这不与「会话不自动过期」冲突——被删的都是九十天没露过面的记录，不会因此把活跃设备踢下线；
   // 目的是避免 sessions 表只增不减（大量被遗弃的会话会永久滞留）
@@ -127,23 +134,29 @@ export async function createSession(DB, userId, userAgent, clientId = null) {
   return token;
 }
 
-// 判定本次登录来源站点，返回 apps.id（不在白名单内一律返回 null，即「直连登录」）
+// 判定本次登录来源站点，返回 { id, label }
+//   id    = 命中 apps 白名单时的 apps.id，否则 null
+//   label = 未命中白名单时的「原始来源串」（调用方声明的 client 值，或请求的 Origin 头），否则 null
 // 取值优先级：显式 client 参数 → 请求 Origin 头。显式参数是必须的：
 // 安卓 App / 服务端直连调用没有 Origin 头，只能由调用方自己声明；能声明不等于可信，
-// 因此两种来源都必须命中 apps 白名单才认，未登记的站点点不出来源（宁可不标，也不要伪造的站点名）
+// 因此 id（用于按站点聚合、批量注销）**必须**命中白名单才给；未命中的只作为 label 标注出来，
+// 界面上标成「未登记来源」——宁可不认这个站点名，也不把自报的名字当权威。
+// 两者都为 null = 通行证直连登录，归账号中心「登录设备」卡
 export async function resolveClient(DB, request, explicit) {
   const raw = String(explicit || '').trim() || (request.headers.get('Origin') || '').trim();
-  if (!raw) return null;
+  if (!raw) return { id: null, label: null };
   // 能解析成 URL 就按 origin 精确匹配（new URL 会规范化大小写与默认端口、去掉路径）；
   // 否则当作站点名匹配——App 端传的是应用名，没有 origin
   let origin = '';
   try { origin = new URL(raw).origin; } catch (e) { origin = ''; }
   // 通行证自己的页面（同源）不算第三方来源，否则 account.html 的登录会被误标成某个站点
-  if (origin && origin === new URL(request.url).origin) return null;
+  if (origin && origin === new URL(request.url).origin) return { id: null, label: null };
   const row = origin
     ? await DB.prepare('SELECT id FROM apps WHERE origin = ?').bind(origin).first()
     : await DB.prepare('SELECT id FROM apps WHERE name = ?').bind(raw).first();
-  return row ? row.id : null;
+  if (row) return { id: row.id, label: null };
+  // 未登记：截断到 100 字符再入库，避免调用方塞超长串把界面和库撑坏
+  return { id: null, label: (origin || raw).slice(0, 100) };
 }
 
 // 撤销该用户的全部会话（重置密码等安全场景：让所有设备一并登出）
