@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Setup</title>
+<!-- 刻意不引 base.css：本页是与其它页完全独立的欢迎面板（自有 :root 变量、自有 body、无 navbar），
+     与那 104 行公共样式零重叠。引进来只会白白继承 base 的 body { line-height: 1.6; flex-direction: column }，
+     而本页 body 是多子元素的 flex 布局且全文未声明 line-height，这两条会真的改变排布，得不偿失 -->
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 

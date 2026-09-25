@@ -7,6 +7,9 @@
 <title>Qxwk 通行证</title>
 <meta name="description" content="Qxwk 账号通行证 —— 青翔未阔工作室统一账号中心。">
 <link rel="icon" type="image/webp" href="/favicon.webp">
+<!-- 刻意不引 base.css：本页是过渡用的极简跳转页，:root 变量、body、字体全是自成一套，
+     与 base.css 那 104 行（login/account 共用的 navbar + 设计变量 + reset）零重叠。
+     引进来只会多出 14 条本页从不使用的规则，属于「引入」而非「复用」 -->
 <style>
   :root { color-scheme: light; --bg:#f7f7f8; --surface:#ffffff; --text:#171717; --text-muted:#52525b; --border:rgba(23,23,23,.12); --brand:#4b3fe3; --brand-soft:#f2f7ff; --brand-text:#1a1759; }
   :root[data-theme="dark"] { color-scheme: dark; --bg:#0f0f12; --surface:#17171b; --text:#e5e5e5; --text-muted:#a1a1aa; --border:rgba(229,229,229,.12); --brand:#6054f1; --brand-soft:#1a1759; --brand-text:#cfd8ff; }
