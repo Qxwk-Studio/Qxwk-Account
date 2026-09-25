@@ -593,6 +593,8 @@ export default {
     }
 
     // 其余：静态资源（public/），并同步 CORS 头
+    // 注意：这段能执行到，依赖 wrangler.toml 里 [assets] 的 binding = "ASSETS" + run_worker_first = true
+    // —— 默认的 assets-first 路由会让 HTML 由资源服务直接响应、根本不进 Worker，安全头就加不上
     const res = await env.ASSETS.fetch(request);
     return corsHeaders(request, addSecurityHeaders(res));
   },

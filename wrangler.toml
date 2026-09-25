@@ -4,8 +4,17 @@ compatibility_date = "2026-08-05"
 compatibility_flags = ["nodejs_compat"]
 
 # 静态资源目录（public/）
+#
+# binding = "ASSETS"：把资源集合暴露给 Worker（env.ASSETS.fetch）。**不能省**——
+#   没有它 env.ASSETS 就是 undefined，未命中静态资源的路径会直接抛异常（线上表现为 Cloudflare 1101）。
+# run_worker_first = true：默认值 false 时「命中静态文件的请求由资源服务直接响应、不进 Worker」，
+#   于是 / 与各 .html 都绕过 Worker，worker.js 里给 HTML 加的 CSP 等安全头根本不会生效。
+#   置 true 后所有请求先过 Worker：/api/* 由代码处理，其余交给 env.ASSETS.fetch（未命中即正常 404）。
+#   代价：js/css/图片等资源也过一次 Worker（略增延迟并计入 Worker 请求数），本项目量级可忽略。
 [assets]
 directory = "public"
+binding = "ASSETS"
+run_worker_first = true
 
 # D1 数据库绑定
 # 部署前：在 CF 控制台创建 D1 数据库后，把 database_id 替换成你的数据库 ID
