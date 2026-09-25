@@ -68,7 +68,8 @@ function generateToken() {
 // token 落库前先做 SHA-256：库里只存哈希，D1 被 dump 也无法直接拿去冒用身份
 // 查询侧同样先哈希再按主键等值查，性能与原明文存储一致（仍是主键索引命中）；
 // 代价是不能再从库里肉眼读 token 调试，排查会话问题请用 rowid / user_id
-export async function hashToken(token) {
+// 仅模块内部使用（createSession 写入 / resolveSession 查找），不对外导出
+async function hashToken(token) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token || '')));
   return toHex(buf);
 }
@@ -144,7 +145,9 @@ export async function createSession(DB, userId, userAgent, clientId = null, clie
 // 两者都为 null = 通行证直连登录，归账号中心「登录设备」卡
 export async function resolveClient(DB, request, explicit) {
   const raw = String(explicit || '').trim() || (request.headers.get('Origin') || '').trim();
-  if (!raw) return { id: null, label: null };
+  // Origin: null 是沙箱 iframe / file:// 等不透明来源按规范发的值；调用方也可能自报 "null"/"undefined"。
+  // 这些都不是真来源，当「没有来源」处理——否则「已授权网站」卡里会冒出一个叫 "null" 的来源，既看不懂、也没法跟人对上
+  if (!raw || /^(null|undefined)$/i.test(raw)) return { id: null, label: null };
   // 能解析成 URL 就按 origin 精确匹配（new URL 会规范化大小写与默认端口、去掉路径）；
   // 否则当作站点名匹配——App 端传的是应用名，没有 origin
   let origin = '';
