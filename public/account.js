@@ -305,6 +305,10 @@ async function loadInviteCode() {
     if (data && data.paused) {
       codeEl.textContent = '邀请码生成已暂停';
       if (hintEl) hintEl.textContent = '管理员已暂停邀请码生成，暂无法获取邀请码';
+    } else if (data && data.need_email_verify) {
+      // 未绑定/未验证邮箱：服务端只在「生成新码」这一步拦，已有未使用码会照常返回（见 worker.js）
+      codeEl.textContent = '需先验证邮箱';
+      if (hintEl) hintEl.textContent = '绑定并验证邮箱后才能生成邀请码；已有未使用的邀请码仍会显示';
     } else if (data && data.code) {
       codeEl.textContent = data.code;
       if (copyBtn) copyBtn.disabled = false;

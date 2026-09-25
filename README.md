@@ -5,12 +5,12 @@
 ## ✨ 功能一览
 
 - **统一账号**：注册一个通行证账号，获得昵称（可改）+ 专属颜色（60 色 Material 调色板）+ UID
-- **邀请码注册**：默认注册需邀请码（`invite_code_required` 开关），账号中心一键生成（一码制：有未使用码则返回、无则生成，消耗后才产下一个）
+- **邀请码注册**：默认注册需邀请码（`invite_code_required` 开关），账号中心一键生成（一码制：有未使用码则返回、无则生成，消耗后才产下一个）。**生成要求邮箱已绑定且已验证**（未验证时接口回 `{code:null, need_email_verify:true}`，前端提示去验证邮箱）；**只拦新生成**——已生成的未使用码照常回显，不因邮箱状态被藏起来
 - **登录页**：登录 / 注册 / 主题切换 / 邀请码字段（按 `invite_code_required` 开关联动显隐）
 - **设置密码流程**：DB 中 `password_hash` 为空的账号（管理员预建/导入），登录时引导到「🔑 设置密码」表单，设完即登录
 - **忘记密码**：登录页「忘记密码？」入口，凭**已绑定且已验证的邮箱**发送重置验证码 → 输入验证码+新密码即可重置并登录（防枚举；成功后撤销该账号**全部会话**，所有设备一并登出）
 - **登录失败限流**：同一账号 15 分钟内失败满 5 次即锁定 15 分钟（返回 429），登录成功即清零；不区分账号是否存在，避免用 429 探测账号
-- **多会话登录**：同一账号可在多台设备/浏览器同时登录，各持独立 token 互不影响。账号中心两张卡把全部会话**划成互补的两份、不重不漏**：「💻 登录设备」只列**在通行证本站直接登录**的设备（系统 · 浏览器、最后活跃、登录时间），可**逐个下线**或**一键下线其他所有设备**（当前设备不提供下线按钮，避免把自己踢出），卡片底部合并展示最近 5 条登录记录；「🌐 已授权网站」收**除本站直连外的其他一切来源**的会话——已登记站点（`apps` 白名单，显示站点名 / origin）、未登记来源（名字是调用方自报的原始串，标「未登记来源」）、以及后来被移出白名单的站点（标「已移除的站点」），每行都可**整来源注销**（= 撤销本账号在该来源的全部会话）
+- **多会话登录**：同一账号可在多台设备/浏览器同时登录，各持独立 token 互不影响。账号中心两张卡把全部会话**划成互补的两份、不重不漏**：「💻 登录设备」只列**在通行证本站直接登录**的设备（系统 · 浏览器、最后活跃、登录时间），可**逐个下线**或**一键下线该卡内其他所有设备**（只作用于本站直连设备，第三方来源不受影响；当前设备不提供下线按钮，避免把自己踢出），卡片底部合并展示最近 5 条登录记录；「🌐 已授权网站」收**除本站直连外的其他一切来源**的会话——已登记站点（`apps` 白名单，显示站点名 / origin）、未登记来源（名字是调用方自报的原始串，标「未登记来源」）、以及后来被移出白名单的站点（标「已移除的站点」），每行都可**整来源注销**（= 撤销本账号在该来源的全部会话）
 - **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / 邮箱）+ 邮箱验证 + 重置密码（折叠，无需原密码）+ 邀请码卡 + 登录设备（含最近登录记录）+ 已授权网站 + 退出登录
 - **已授权网站 + 第三方接入**：其他站点（及应用）调登录/注册时带 `client` 声明来源，服务端拿 `apps` 白名单校验——**命中记 `sessions.client_id`**（权威站点名），**未命中记 `sessions.client_label`**（自报的原始串，标「未登记来源」），两者都是通行证之外来源的证据，故都归「🌐 已授权网站」卡（按来源聚合展示，可**整来源注销登录**，点名称可**展开查看该来源里的登录设备**并逐台下线）；只有两列皆空才是本站直连登录、留在「登录设备」卡。其他网站的后端用 `POST /api/verify` 校验用户带来的 token（只回 `{valid, userId, client}`，不含昵称/邮箱等资料）
 - **邮箱验证**：账号中心左列「📧 邮箱验证」卡（在「重置密码」卡上方），填邮箱 → 发送验证码（Resend 发信）→ 输入验证码绑定；绑定后邮箱标记已验证
@@ -84,7 +84,7 @@
 |------|------|------|------|
 | GET | `/api/sessions` | Bearer | 登录设备列表：`{sessions:[{id, device, created_at, last_seen_at, current}]}`（**只含在通行证本站直接登录的会话**，即 `client_id` 与 `client_label` 都为空；来自其他网站 / 应用的会话——含未登记来源——见 `/api/clients`。`device` 为后端解析的「系统 · 浏览器」，`current` 标记当前请求所用会话；不返回 token） |
 | POST | `/api/sessions/revoke` | Bearer | 下线指定设备：`{id}`（id 取 `/api/sessions` 返回的 id；当前设备不可下线，返回 404） |
-| POST | `/api/sessions/revoke-others` | Bearer | 下线除当前设备外的全部设备：→ `{ok, revoked}`（revoked 为被撤销的会话数） |
+| POST | `/api/sessions/revoke-others` | Bearer | 下线除当前设备外的全部**本站直连**设备（即 `client_id` 与 `client_label` 都为空，与「登录设备」卡的展示范围一致；第三方来源的会话不受影响，请在 `/api/clients/revoke` 按来源注销）：→ `{ok, revoked}`（revoked 为被撤销的会话数） |
 | POST | `/api/logout` | Bearer | 退出登录：撤销**当前**会话（幂等；其他设备不受影响） |
 | GET | `/api/login-log` | Bearer | 最近 5 条登录记录，展示在账号中心「登录设备」卡底部（来源列：命中白名单显示站点名，未登记来源显示原始串 +「未登记」，两者都无显示「直接访问」；含重置密码后的自动登录） |
 
@@ -93,7 +93,7 @@
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/config` | 无 | 公开配置：`{inviteCodeRequired, inviteGenerateEnabled, inviteRegisterEnabled}` |
-| GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制） |
+| GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制）。有未使用码 → `{paused:false, code}`；无码且邮箱未验证 → `{code:null, need_email_verify:true}`；管理员暂停生成 → `{paused:true, code:null}` |
 
 **跨站验证 token**（供原站使用）：`fetch('https://account.qxwkstudio.top/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })`（旧写法 `GET /api/me` + Bearer 仍可用，但不返回 token 的来源站点）。Worker 对任意 Origin 回显 CORS 头（全面放行，鉴权靠 token），任意站点均可直接跨域调用。
 
@@ -175,7 +175,7 @@ npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET val
 - **第三方接入与来源归属**：跨站 SSO 已下线，第三方站点改为**自己调 `/api/login`（或 `/api/register`）拿 token 并自行保存**，本站不再做跳转授权。为了让用户看清「哪些网站拿着我的登录」，登录/注册接口接受可选 `client`：传站点 origin（浏览器）或应用名（安卓 App / 服务端直连无 `Origin` 头），服务端由 `resolveClient()` 分两档记来源：**命中 `apps` 白名单** → 写 `sessions.client_id`（站点名 / origin 以库为准）；**未命中** → 写 `sessions.client_label`（自报的原始串，界面标「未登记来源」，绝不当作可信站点名，但**能注销**）；**两者都无**（本站同源页面 / 没声明来源又没 `Origin` 头）→ 两列皆空，才是「本站直连登录」。同源（通行证自己的页面）不会被误标成站点。账号中心「已授权网站」卡按这两个字段聚合展示（外加 `apps` 行已被删的 `client_id`，兜底名「已移除的站点」），`POST /api/clients/revoke` 按 `id` 撤销本账号在该来源的全部会话（= 该处需重新登录）——id 为纯数字按 `client_id` 匹配，否则按 `client_label` 匹配。下游后端校验用户带来的 token 用 `POST /api/verify`（body 传 `token` 或 `Authorization: Bearer`，无效返回 `200 {valid:false}`），它比 `/api/me` 多返回 `client`（token 的来源站点），且**不**滚动写 `last_seen_at`、不写登录日志（允许高频调用）。**`client` 只能当「来源标注」，不能当鉴权依据**：服务端调用可以随意伪造 `Origin` 头，`resolveClient` 的白名单仅确保「标出来的站点名是登记过的」，不代表调用者真的来自该站点；同理 `/api/verify` 不做调用方鉴权，任何人拿到 token 都能验证它（故它只回 `{valid, userId, client}`，不含用户资料）。
 - **CORS 与页面安全**：API 全面放行 CORS —— 因为鉴权靠显式 `Bearer` 头、不使用 cookie，不存在「浏览器自动附带凭证」的 CSRF 面，放行才能让任意站点前端直接跨域登录。HTML 页面由 Worker 统一补 `Content-Security-Policy`（`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`img-src` 放行 `weavatar.com`、`frame-ancestors 'self'` 等）+ `X-Content-Type-Options` + `Referrer-Policy`（见 `worker.js` 的 `addSecurityHeaders`）。**`script-src` 已收紧到只有 `'self'`**（**唯一例外**：CF 边缘自动注入的 Web Analytics beacon `static.cloudflareinsights.com`，`connect-src` 同步放行 `cloudflareinsights.com`；只要该域名的 Web Analytics 开着，CF 就会往 HTML 里塞这段脚本，不放行则每次访问控制台报一条违规——关掉 Web Analytics 后即可把这两个域名删掉）：原先各页的内联 `<script>` 与内联 `on*` 处理器已全部抽成 `public/*.js` 外链、改为 `data-action` + 事件委托（`login.js` / `account.js` 里的 `ACTIONS` 表）。因此**新增页面或按钮时不要再写内联脚本或 `onclick`**——会被 CSP 直接拦掉且只在控制台报错；改用独立 `.js` + `data-action`。`style-src` 仍保留 `'unsafe-inline'`：页面里有内联 `<style>` 块、且多处用 `style="..."` 做数据驱动着色，拆成 class 不划算。`frame-ancestors` 用 `'self'` 而**不是** `'none'`：`login.html` / `account.html` 的欢迎面板就是 `<iframe src="setup.html">`，`'none'` 会把**同源**嵌套一起挡掉（面板白掉、控制台报 Framing 违规），`'self'` 既放行同源嵌套、又照样挡住第三方站点把本站嵌进它的 iframe。**这些头依赖 `wrangler.toml` 的静态资源配置**：`[assets]` 必须写 `binding = "ASSETS"`（否则 `env.ASSETS` 是 undefined，未命中静态资源的路径会抛异常、线上表现成 Cloudflare 1101）并写 `run_worker_first = true`。默认的 `run_worker_first = false` 是「命中静态文件就由资源服务直接响应、**不进 Worker**」，那样 `/` 与各 `.html` 都会绕过 Worker，CSP 等头一条都不会生效（只有 `/api/*` 是天然进 Worker 的）。
 - **颜色分配**：注册按顺序从 60 色 Material 调色板取色，池子占满后循环。
-- **邀请码**：8 位去易混淆字符（I/O/0/1），原子 `UPDATE ... WHERE used_at IS NULL` 消耗（用后即焚）；一码制——用户始终只保留一个未使用码，旧码消耗后才生成下一个，防止生成过多。
+- **邀请码**：8 位去易混淆字符（I/O/0/1），原子 `UPDATE ... WHERE used_at IS NULL` 消耗（用后即焚）；一码制——用户始终只保留一个未使用码，旧码消耗后才生成下一个，防止生成过多。**生成需邮箱已绑定且已验证**（邀请码是「带人进来」的凭证，未验证邮箱的账号不该发码），但**只在生成那一步校验**：已有未使用码照常回显，不受邮箱状态影响（否则已分享出去的码会突然从界面消失，用户以为丢了）。
 - **空哈希账号**：支持管理员预建/导入无密码账号（`password_hash` 为空），用户首次登录时 `POST /api/login` 返回 `need_set_password`，前端引导其带 `new_password` 再次调用同一接口完成设密并登录——不再需要单独的设密码接口。
 - **头像 URL 集中计算**：WeAvatar 链接基于 `sha256(lowercase(trim(email)))`。**只有 `@qq.com` 邮箱会生成头像 URL**（其它邮箱 `avatar=null`），且仅在邮箱绑定并验证后生效。哈希用 Web Crypto 原生 `crypto.subtle.digest('SHA-256', ...)`（原先手写的 ~150 行纯 JS MD5 已删除；WeAvatar 文档明确 HASH 支持 SHA256 / MD5 并**推荐 SHA256**，未在 WeAvatar 注册过头像时会回退 Gravatar / QQ 头像，故 QQ 头像不受哈希算法变更影响）。因 `crypto.subtle` 只能异步，`getAvatarUrl(email)` 为 **async 函数，调用处必须 `await`**。为保持前后端口径一致、避免多个项目重复维护哈希实现，后端（`src/lib.js`）是唯一实现处；所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
 - **邮箱验证**：6 位验证码由 `crypto.getRandomValues` 生成；`email_codes` 表一码制（发新码即删该用户旧码），验证时用「用后即焚」原子 UPDATE（同时并发重放只成功一次）；码不存在/过期/已用统一报「验证码错误或已过期」防枚举；60 秒限发防刷；验证通过才写 `users.email_verified=1`。修改邮箱（含清空）会重置 `email_verified=0`，需重新验证。发信走 Resend，密钥经 `EMAIL_API_KEY` 注入（本地 `.dev.vars` / 线上 Secret），不落仓库。

@@ -99,6 +99,9 @@ async function handleApi(request, env) {
   }
 
   // GET /api/invite-code（登录用户：有未使用码直接返回，无则生成一个；一码制，防止生成过多）
+  // 生成前置条件：邮箱已绑定且已验证（否则回 {code:null, need_email_verify:true}）——邀请码是
+  // 「带人进来」的凭证，发给未验证邮箱的账号等于绕开可追溯这一层。**只在生成时校验**：
+  // 已有未使用码仍照常回显，那个码可能已经分享出去了，藏起来只会让用户以为码丢了（验证邮箱后自然恢复生成能力）
   if (method === 'GET' && path === '/api/invite-code') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
@@ -109,8 +112,11 @@ async function handleApi(request, env) {
     let row = await DB.prepare(
       'SELECT code FROM invite_codes WHERE used_at IS NULL AND created_by = ? ORDER BY rowid ASC LIMIT 1'
     ).bind(userId).first();
-    // 2) 没有则生成一个（写入 created_by 记录生成人，便于溯源）
+    // 2) 没有则生成一个（写入 created_by 记录生成人，便于溯源）——这一步要求邮箱已验证
     if (!row) {
+      const me = await DB.prepare('SELECT email, email_verified FROM users WHERE id = ?').bind(userId).first();
+      // 未绑定邮箱（email 为空）同样按未验证处理
+      if (!me || !me.email || !me.email_verified) return json({ code: null, need_email_verify: true });
       let code = generateInviteCode();
       let inserted = false;
       for (let i = 0; i < 5 && !inserted; i++) {
@@ -473,12 +479,17 @@ async function handleApi(request, env) {
     return json({ ok: true });
   }
 
-  // POST /api/sessions/revoke-others（登录：下线除当前设备外的全部设备）
+  // POST /api/sessions/revoke-others（登录：下线除当前设备外的全部**本站直连**设备）
+  // 只删「来源两列皆空」的会话，与「登录设备」卡的展示范围严格一致——那张卡只列本站直连设备，
+  // 这个按钮也就只该下线这些设备。第三方来源的会话（已登记站点 / 未登记来源）属于「已授权网站」卡，
+  // 要撤销应在那里按来源注销（POST /api/clients/revoke）；否则用户点一下「下线其他所有设备」，
+  // 会把某个网站里的登录一起悄悄踢掉，与该卡的语义对不上。
   if (method === 'POST' && path === '/api/sessions/revoke-others') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
-    const del = await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?')
-      .bind(userId, await getSessionKey(DB, request)).run();
+    const del = await DB.prepare(
+      'DELETE FROM sessions WHERE user_id = ? AND token != ? AND client_id IS NULL AND client_label IS NULL'
+    ).bind(userId, await getSessionKey(DB, request)).run();
     return json({ ok: true, revoked: del.meta.changes });
   }
 
