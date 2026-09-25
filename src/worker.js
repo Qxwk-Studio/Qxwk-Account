@@ -542,16 +542,25 @@ async function handleApi(request, env) {
 // 新增页面/按钮时**不要再写内联脚本或 onclick**，否则会被 CSP 静默拦掉（在控制台才会报错）。
 // style-src 仍保留 'unsafe-inline'：页面里有内联 <style> 块，且多处用 style="..." 做数据驱动着色
 // （如颜色色板 background），拆成 class 得不偿失。
-// img-src 放行 weavatar.com（QQ 头像外链）；frame-ancestors 'none' 禁止本站页面被他人 iframe 嵌套。
+// img-src 放行 weavatar.com（QQ 头像外链）。
+// static.cloudflareinsights.com / cloudflareinsights.com 是**唯一的例外**：只要该域名的
+//   Cloudflare Web Analytics 开着，CF 就会在边缘往返回的 HTML 里塞一段 beacon（type="module"
+//   的 static.cloudflareinsights.com/beacon.min.js，用它自己的域名回传数据），不是我们自己写的。
+//   不在这里放行的话每次访问都会在控制台报一条「violates script-src 'self'」——统计拿不到数据而已，
+//   功能无影响。想彻底不留这个例外：去 CF 控制台关掉 Web Analytics，再把这两个域名删掉即可。
+// frame-ancestors 'self'（**不能用 'none'**）：本站自己的页面要嵌套自己的 setup.html ——
+//   login.html / account.html 里的欢迎面板是 <iframe src="setup.html">，'none' 会把**同一来源**的嵌套
+//   也一起挡掉（控制台报 "Framing ... violates frame-ancestors"），面板直接白掉。改成 'self' 后
+//   同源嵌套放行，第三方站点仍无法把本站嵌进它的 iframe。
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https://weavatar.com",
-  "connect-src 'self'",
+  "connect-src 'self' https://cloudflareinsights.com",
   "base-uri 'none'",
   "form-action 'none'",
-  "frame-ancestors 'none'",
+  "frame-ancestors 'self'",
 ].join('; ');
 
 function addSecurityHeaders(res) {
