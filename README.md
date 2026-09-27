@@ -12,7 +12,7 @@
 - **登录失败限流**：同一账号 15 分钟内失败满 5 次即锁定 15 分钟（返回 429），登录成功即清零；不区分账号是否存在，避免用 429 探测账号
 - **多会话登录**：同一账号可在多台设备/浏览器同时登录，各持独立 token 互不影响。账号中心两张卡把全部会话**划成互补的两份、不重不漏**：「💻 登录设备」只列**在通行证本站直接登录**的设备（系统 · 浏览器、最后活跃、登录时间），可**逐个下线**或**一键下线该卡内其他所有设备**（只作用于本站直连设备，第三方来源不受影响；当前设备不提供下线按钮，避免把自己踢出）；「🌐 已授权网站」收**除本站直连外的其他一切来源**的会话——已登记站点（`apps` 白名单，显示站点名 / origin）、未登记来源（名字是调用方自报的原始串，标「未登记来源」）、以及后来被移出白名单的站点（标「已移除的站点」），每行都可**整来源注销**（= 撤销本账号在该来源的全部会话）
 - **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / 邮箱）+ 邮箱验证 + 重置密码（折叠，无需原密码）+ 邀请码卡 + 登录设备 + 已授权网站 + 退出登录
-- **已授权网站 + 第三方接入**：其他站点（及应用）调登录/注册时带 `client` 声明来源，服务端拿 `apps` 白名单校验——**命中记 `sessions.client_id`**（权威站点名），**未命中记 `sessions.client_label`**（自报的原始串，标「未登记来源」），两者都是通行证之外来源的证据，故都归「🌐 已授权网站」卡（按来源聚合展示，可**整来源注销登录**，点名称可**展开查看该来源里的登录设备**并逐台下线）；只有两列皆空才是本站直连登录、留在「登录设备」卡。其他网站的后端用 `POST /api/verify` 校验用户带来的 token（只回 `{valid, userId, client}`，不含昵称/邮箱等资料）
+- **已授权网站 + 第三方接入**：其他站点（及应用）调登录/注册时带 `client` 声明来源，服务端拿 `apps` 白名单校验——**命中记 `sessions.client_id`**（权威站点名），**未命中记 `sessions.client_label`**（自报的原始串，标「未登记来源」），两者都是通行证之外来源的证据，故都归「🌐 已授权网站」卡（按来源聚合展示，每行一个「注销登录」= **整来源注销**，撤销本账号在该来源的全部会话）；只有两列皆空才是本站直连登录、留在「登录设备」卡。其他网站的后端用 `POST /api/verify` 校验用户带来的 token（只回 `{valid, userId, client}`，不含昵称/邮箱等资料）
 - **邮箱验证**：账号中心左列「📧 邮箱验证」卡（在「重置密码」卡上方），填邮箱 → 发送验证码（Resend 发信）→ 输入验证码绑定；绑定后邮箱标记已验证
 - **头像**：**仅 `@qq.com`** 邮箱走 WeAvatar 头像（头像优先级：已绑定邮箱中有 `@qq.com` 且已验证）；邮箱 SHA-256 由 **后端集中计算**，所有接口统一返回 `avatar`（完整 WeAvatar URL），前端直接消费；无 QQ 邮箱或图片加载失败回退文字头像（昵称首字 + 专属颜色）
 - **CORS 全面放行**：任意 Origin 均可跨域调用 `/api/me`、`/api/verify`（鉴权靠 Bearer token / token 本身，不设来源白名单；`Access-Control-Allow-Methods` 为 `GET, POST, PUT, OPTIONS`）
@@ -76,7 +76,7 @@
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | POST | `/api/verify` | token 本身 | 校验 token（第三方后端用）：`{token}`（也可改用 `Authorization: Bearer`）→ 有效 `{valid:true, userId, client}`，无效一律 `{valid:false}`（**200**，下游按字段判断即可）。**只回最小信息**：调用方需要的只有「这个 token 属于哪个 userId」+「是不是自己站点签发的」（`client`，直连登录为 `null`），昵称/邮箱/头像等资料一律不回（token 泄露者不该顺带拿到邮箱）；要资料请自带 Bearer 调 `/api/me`。**不**更新 `last_seen_at`、不写登录日志（允许下游高频调用） |
-| GET | `/api/clients` | Bearer | 已授权来源 + 每处设备：`{clients:[{id, name, origin, homepage, unregistered, session_count, last_seen_at, sessions:[{id, device, created_at, last_seen_at, current}]}]}`——**除本站直连外的全部会话**按来源聚合：① 命中 `apps` 白名单的站点（`name`/`origin` 来自 `apps`，`unregistered:false`）；② 未登记来源（`name` = 调用方自报的原始串，`unregistered:true`，界面标「未登记来源」）；③ `client_id` 还在但 `apps` 行已被删的（`name` 兜底为「已移除的站点」）。`sessions` 子数组供前端「展开看设备」（按 `sessions.client_id` / `client_label` 聚合；本站直连登录不在此接口，见 `/api/sessions`） |
+| GET | `/api/clients` | Bearer | 已授权来源 + 每处设备：`{clients:[{id, name, origin, homepage, unregistered, session_count, last_seen_at, sessions:[{id, device, created_at, last_seen_at, current}]}]}`——**除本站直连外的全部会话**按来源聚合：① 命中 `apps` 白名单的站点（`name`/`origin` 来自 `apps`，`unregistered:false`）；② 未登记来源（`name` = 调用方自报的原始串，`unregistered:true`，界面标「未登记来源」）；③ `client_id` 还在但 `apps` 行已被删的（`name` 兜底为「已移除的站点」）。`sessions` 子数组是该来源下的各台设备（按 `sessions.client_id` / `client_label` 聚合；本站直连登录不在此接口，见 `/api/sessions`），**当前无前端消费方**——账号中心的「已授权网站」卡已改为只按来源整站注销，不再展开逐台设备 |
 | POST | `/api/clients/revoke` | Bearer | 注销某来源的登录：`{id}`（取 `/api/clients` 返回的 id）→ 撤销本账号在该来源的**全部会话**（该处需重新登录）→ `{ok, revoked}`；无活跃登录 404。id 为**纯数字**时按 `client_id`（已登记站点）匹配，**其它**一律按 `client_label`（未登记来源的原始串）匹配，故未登记来源也能注销。与按设备的 `/api/sessions/revoke` 互补 |
 
 **会话（多设备登录）**

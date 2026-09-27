@@ -436,7 +436,8 @@ async function revokeOtherSessions() {
 // 已授权网站：服务端按来源聚合出「本账号在这些站点/应用各有几处登录」
 // 覆盖「不是在本站直接登录」的全部会话：已登记站点（有站点名/origin）+ 未登记来源（名字是调用方
 // 自报的原始串，服务端给 unregistered=true，这里标成「未登记来源」）+ 已移出白名单的站点（「已移除的站点」）
-// 每个来源可展开看它的登录设备（<details> 原生展开，不用 JS），可整站注销，也可在展开后按设备单独下线
+// 每个来源只有「注销登录」一个动作：一次撤销本账号在该来源的**全部会话**（该处需重新登录）。
+// 不提供逐台设备下线 —— 来源是用户能理解的最小单位，逐台下线在「这是谁的登录」上说不清
 // 在本站直接登录的设备（来源两列皆空）归「登录设备」卡，两张卡不重不漏
 async function loadClients() {
   var list = document.getElementById('clientList');
@@ -448,27 +449,15 @@ async function loadClients() {
       return;
     }
     list.innerHTML = data.clients.map(function (c) {
-      // 展开后的设备行：s.id 为服务端返回的整数 rowid，作为 data-id 交给委托取值（无字符串注入风险）
-      var devs = (c.sessions || []).map(function (s) {
-        var btn = s.current
-          ? '<span class="badge-current">当前设备</span>'
-          : '<button class="btn btn-ghost btn-sm" data-action="revokeSession" data-id="' + s.id + '">下线</button>';
-        return '<div class="site-dev"><div class="meta">' + escapeHtml(s.device)
-          + ' · 最后活跃 ' + fmtDateTime(s.last_seen_at) + '</div>' + btn + '</div>';
-      }).join('');
       // 来源副标题：已登记站点显示 origin；未登记来源 / 已移除站点没有 origin，改成显式标注——
       // 既不渲染出 "null"，也提醒用户这个名字是调用方自报的，不可当权威
       var src = c.unregistered ? '未登记来源 · ' : (c.origin ? escapeHtml(c.origin) + ' · ' : '');
-      var head = src + c.session_count + ' 处登录 · 最近活跃 ' + fmtDateTime(c.last_seen_at);
-      // 行的形状与「登录设备」卡一致：左 .main 里第一行站点名、第二行灰字说明，右侧是注销按钮；
-      // 站名与说明分两行的原因是 .dev 是块级 flex，若放在 <summary> 平级，箭头会被挤到单独一行，
-      // 所以用 .head 包住这两行，箭头由 CSS 用 flex 排在 .head 左侧
+      var meta = src + c.session_count + ' 处登录 · 最近活跃 ' + fmtDateTime(c.last_seen_at);
+      // 行的形状与「登录设备」卡一致：左 .main 里第一行站点名、第二行灰字说明，右侧是注销按钮
       return '<div class="session-item">'
         + '<div class="main">'
-        + '<details class="site"><summary><span class="head">'
-        + '<span class="dev"><span class="dot"></span>' + escapeHtml(c.name) + '</span>'
-        + '<span class="meta">' + head + '</span>'
-        + '</span></summary><div class="site-devs">' + devs + '</div></details>'
+        + '<div class="dev"><span class="dot"></span>' + escapeHtml(c.name) + '</div>'
+        + '<div class="meta">' + meta + '</div>'
         + '</div>'
         // c.id 对已登记站点是 apps.id（数字），对未登记来源是原始串（字符串），所以必须转义后再放进属性
         + '<button class="btn btn-ghost btn-sm" data-action="revokeClient" data-id="' + escapeHtml(String(c.id)) + '">注销登录</button>'

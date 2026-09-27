@@ -529,7 +529,8 @@ async function handleApi(request, env) {
   //   ③ client_id 为空、client_label 有值的未登记来源——名字就是调用方自报的原始串，标「未登记来源」
   // 通行证本站直连登录（两列皆空）不属于任何来源，归「登录设备」卡（GET /api/sessions）。
   // 故这里**必须**用 LEFT JOIN：用 JOIN 时 ② 会被静默丢掉，那种会话两张卡都看不到、也就永远注销不掉。
-  // sessions 子数组给前端「展开该来源看设备」用：每条含 rowid（下线标识）/设备名/时间/是否当前设备
+  // sessions 子数组：每条含 rowid / 设备名 / 时间 / 是否当前设备。账号中心的「已授权网站」卡已改为
+  // 只按来源整站注销、不再展开逐台设备，故此字段**当前无消费方**；列本来就在下面这条查询里、不额外开销
   // 对外 JSON 字段名仍是 name / origin（前端与 README 都按它渲染）：name 取 display_name；
   // origin 只在 origin 类来源有值，name 类（App）来源回 null，免得把应用名当 origin 显示出来
   if (method === 'GET' && path === '/api/clients') {
