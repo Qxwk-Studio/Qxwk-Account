@@ -150,7 +150,7 @@ export async function resolveClient(DB, request, explicit) {
   if (!raw || /^(null|undefined)$/i.test(raw)) return { id: null, label: null };
   // 能解析成 URL 就按 origin 匹配（new URL 会规范化大小写与默认端口、去掉路径）；
   // 否则当作站点名匹配——App 端传的是应用名，没有 origin。
-  // 两档在 apps 表里由 match_type 标明，查的是同一列 match_key（见 migrations/0002_apps_restructure.sql）
+  // 两档在 apps 表里由 match_type 标明，查的是同一列 match_key（见 migrations/0001_init.sql 的 apps 表）
   let origin = '';
   try { origin = new URL(raw).origin; } catch (e) { origin = ''; }
   // 通行证自己的页面（同源）不算第三方来源，否则 account.html 的登录会被误标成某个站点

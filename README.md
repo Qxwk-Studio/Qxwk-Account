@@ -29,8 +29,7 @@
 
 ```
 ├── migrations/
-│   ├── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps / login_log / login_attempts(失败限流) / invite_codes / settings / email_codes
-│   └── 0002_apps_restructure.sql  # 重建 apps：拆出「检测名称」(match_type + match_key) 与「展示名称」(display_name)
+│   └── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps(来源白名单：display_name + match_type + match_key) / login_log / login_attempts(失败限流) / invite_codes / settings / email_codes
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 全面放行 + 静态资源回退
 │   └── lib.js              # PBKDF2 密码哈希 / 会话(多会话 + 来源站点归属) / 设备名解析 / 颜色分配 / 邀请码生成 / SHA-256 + getAvatarUrl / sendEmail(Resend) + genEmailCode
@@ -234,27 +233,12 @@ npx wrangler d1 migrations apply qxwk-account --remote
 npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (display_name, match_type, match_key, homepage) VALUES ('City Footprint', 'origin', 'https://travel.qxwkstudio.top', 'https://travel.qxwkstudio.top')"
 ```
 
-> 已有线上旧库：新增的**表**（如 `login_attempts`）重跑一次建库文件即可补建（`npx wrangler d1 execute qxwk-account --remote --file migrations/0001_init.sql`）；新增的**列**（`sessions.user_agent` / `last_seen_at` / `client_id` / `client_label`）`CREATE TABLE IF NOT EXISTS` 补不了，必须逐条 `ALTER TABLE sessions ADD COLUMN ...` 手工加。**注意 `wrangler d1 migrations apply` 也补不了列**：线上库不是用它建的（`migrations list --remote` 里 `0001_init.sql` 仍显示「待应用」），且该文件通篇 `IF NOT EXISTS`，跑一遍只是把它记成已应用、并不会给已存在的表加列。漏加 `client_label` 会让注册/登录直接 500。
+> 已有线上旧库：新增的**表**（如 `login_attempts`）重跑一次建库文件即可补建（`npx wrangler d1 execute qxwk-account --remote --file migrations/0001_init.sql`）；新增的**列**（`sessions.user_agent` / `last_seen_at` / `client_id` / `client_label`）`CREATE TABLE IF NOT EXISTS` 补不了，必须逐条 `ALTER TABLE sessions ADD COLUMN ...` 手工加。**注意 `wrangler d1 migrations apply` 也补不了列**：线上库不是用它建的（`migrations list --remote` 里 `0001_init.sql` 仍显示「待应用」），且该文件通篇 `IF NOT EXISTS`，跑一遍只是把它记成已应用、并不会给已存在的表加列。漏加 `client_label` 会让注册/登录直接 500。改**结构**（`apps` 由 `name`/`origin` 拆成 `display_name`/`match_type`/`match_key`）同样补不了，得重建表并沿用旧 id——`sessions.client_id` / `login_log.client_id` 存的就是 `apps.id`，换 id 会让历史记录全变成「已移除的站点」。
 
 ```bash
 # 已有线上旧库按需逐条执行（已存在的列会报 duplicate column name，忽略即可）
 npx wrangler d1 execute qxwk-account --remote --command "ALTER TABLE sessions ADD COLUMN client_label TEXT"
 ```
-
-### 3.1 重建 apps 表（0002，一次性结构变更）
-
-`apps` 不再用「一个 `name` 兼两职」，改成 **检测名称（`match_type` + `match_key`）** + **展示名称（`display_name`）**：浏览器来源按 `match_type='origin'` 匹配规范 origin，App 来源按 `match_type='name'` 匹配它上报的原样应用名，不必再往 `origin` 里塞占位串。
-
-这是**重建表**（不是加列），线上旧库手工跑一次：
-
-```bash
-# ① 先看现有登记行，确认下面 match_type 的判定符合预期
-npx wrangler d1 execute qxwk-account --remote --command "SELECT id, name, origin, homepage FROM apps"
-# ② 执行重建：沿用旧 id（sessions.client_id / login_log.client_id 存的就是 apps.id，换 id 会让历史记录全变成「已移除的站点」）
-npx wrangler d1 execute qxwk-account --remote --file migrations/0002_apps_restructure.sql
-```
-
-> ⚠️ **必须与本次代码改动同一次上线**：`src/lib.js`、`src/worker.js` 里已不再有 `apps.name` / `apps.origin`，只查 `display_name` / `match_type` / `match_key`。先跑 SQL 后发代码（或反过来）都会让「已授权网站」卡认不出来源——旧列没了、代码查不到，第三方会话会临时全变成「已移除的站点」。
 
 ### 4. 配置邮件服务（Resend）与 KEY
 

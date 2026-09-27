@@ -33,13 +33,22 @@ CREATE TABLE IF NOT EXISTS sessions (
   FOREIGN KEY (client_id) REFERENCES apps(id)
 );
 
--- 第三方应用注册表：接入本站的站点白名单（现用于「登录来源归属」，即 sessions.client_id）
--- 接入一个新站点 = INSERT 一行（name/origin/homepage），无需改代码
+-- 第三方来源注册表：接入本站的来源白名单（现用于「登录来源归属」，即 sessions.client_id）
+-- 接入一个新来源 = INSERT 一行，无需改代码。早先一个 name 兼「展示名」与「匹配串」两职，
+-- App 来源只能往 origin 里塞 app:xxx 占位串来蹭它的 UNIQUE，展示名与判定串搅在一起；现拆成两列：
+--   display_name = 展示名称：账号中心「已授权网站」卡里给人看的名字（如 "City Footprint"）
+--   match_type   = 匹配方式：'origin'（浏览器 / 网页来源）| 'name'（App、服务端直连，没有 Origin 头）
+--   match_key    = 检测名称：真正判定来源归属的串。match_type='origin' 时是**规范 origin**
+--                  （scheme://host[:port]，无路径、无末尾斜杠，要与请求里的 Origin 完全一致）；
+--                  'name' 时是 App 上报的原样应用名（**区分大小写**）
+-- 判定只认 match_type + match_key 这一对（见 src/lib.js 的 resolveClient），display_name 不参与匹配
 -- 注：跨站 SSO 已下线，本表不再承担 SSO 回调白名单职责，但仍是第三方来源的权威名单
 CREATE TABLE IF NOT EXISTS apps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,                   -- 站点名：如 "City Footprint"
-  origin TEXT UNIQUE NOT NULL,          -- 规范 origin（含端口）：https://travel.qxwkstudio.top
+  display_name TEXT NOT NULL,
+  match_type TEXT NOT NULL DEFAULT 'origin'
+               CHECK (match_type IN ('origin', 'name')),
+  match_key TEXT NOT NULL UNIQUE,
   homepage TEXT,                        -- 主页，用户中心展示用
   created_at TEXT DEFAULT (datetime('now'))
 );
