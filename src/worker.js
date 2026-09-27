@@ -430,7 +430,7 @@ async function handleApi(request, env) {
     return json({ ok: true });
   }
 
-  // GET /api/login-log（登录：最近登录记录，展示在账号中心的「最近登录记录」卡）
+  // GET /api/login-log（登录日志：账号中心的「最近登录记录」卡已下线，接口暂留、当前无前端调用）
   // 每条带来源：命中白名单的取 apps.display_name，未登记来源取 source_origin（原始串），两者都无则「直接访问」
   if (method === 'GET' && path === '/api/login-log') {
     const userId = await getUserId(DB, request);

@@ -495,29 +495,6 @@ async function revokeClient(id) {
   }
 }
 
-// 最近登录记录：含本站与第三方的全部登录流水，现已独立成卡
-async function loadLoginLog() {
-  var list = document.getElementById('loginLogList');
-  try {
-    var data = await api('/login-log');
-    if (!data.logs || !data.logs.length) {
-      list.innerHTML = '<div class="empty">暂无记录，登录后即可展示</div>';
-      return;
-    }
-    list.innerHTML = data.logs.map(function (log) {
-      // 已登记站点显示站点名；未登记来源显示原始串并标「未登记」（名字是调用方自报的）；两者都无 = 直接访问
-      var label = log.app_name ? log.app_name
-        : (log.source_origin ? log.source_origin + '（未登记）' : '直接访问');
-      // 行结构与另两张卡统一（.session-item：左 .dev 名称、右 .time 时间）；
-      // 来源差异只由文字标签表达，不再像以前那样额外用点色区分，免得同一页出现两套点色语义
-      return '<div class="session-item"><div class="main"><div class="dev"><span class="dot"></span>'
-        + escapeHtml(label) + '</div></div><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
-    }).join('');
-  } catch (e) {
-    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
-  }
-}
-
 function escapeHtml(t) {
   var d = document.createElement('div');
   d.textContent = t || '';
@@ -583,7 +560,6 @@ if (getSession()) {
       enterUserView(data.avatar);
       loadProfileForm();
       loadSessions();
-      loadLoginLog();
       loadClients();
       // 显示邀请码卡片（空态：点击"生成邀请码"才请求后端，不随页面自动生成）
       var inviteCard = document.getElementById('inviteCodeCard');

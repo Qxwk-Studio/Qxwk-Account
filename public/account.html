@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="strict-origin">
 <title>账号中心 - 青翔未阔工作室</title>
-<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与最近登录记录。">
+<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与已授权网站。">
 <link rel="icon" type="image/webp" href="/favicon.webp">
 <link rel="stylesheet" href="/base.css">
 <style>
@@ -157,9 +157,9 @@
 
   .empty { text-align: center; color: var(--text-tertiary); font-size: 0.84rem; padding: 14px 0; }
 
-  /* ========= 会话行：三张卡（登录设备 / 已授权网站 / 最近登录记录）共用同一套结构 =========
+  /* ========= 会话行：两张卡（登录设备 / 已授权网站）共用同一套结构 =========
      统一形状 = 左 .main（第一行 .dev 设备或站点名，第二行 .meta 灰字说明）+ 右按钮或徽章，
-     三张卡因此行高、分隔线、按钮位置一致；窄屏靠 .main 的 min-width:0 与 overflow-wrap 换行而不溢出 */
+     两张卡因此行高、分隔线、按钮位置一致；窄屏靠 .main 的 min-width:0 与 overflow-wrap 换行而不溢出 */
   .card-title-row .push-right { margin-left: auto; }
   .session-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .session-item:last-child { border-bottom: none; }
@@ -689,7 +689,6 @@
             <h3>💻 登录设备</h3>
             <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions">下线其他所有设备</button>
           </div>
-          <div class="card-subtitle" title="只统计不带来源标识的会话，即在通行证本站直接登录的设备；凡来自其他网站 / 应用的登录都在下方「已授权网站」卡里，可在那里整站注销">只显示在本站直接登录的设备 · 第三方登录见「已授权网站」</div>
           <div id="sessionList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="sessionMsg"></div>
         </div>
@@ -701,17 +700,8 @@
           <div class="card-title-row">
             <h3>🌐 已授权网站</h3>
           </div>
-          <div class="card-subtitle" title="凡不是在通行证本站直接登录的会话都在这里：已登记站点显示站点名与 origin；标「未登记来源」的名字由调用方自报、未经本站登记。点名称可展开查看该处的登录设备，注销后需在该网站 / 应用重新登录">其他网站 / 应用使用你通行证登录的会话 · 点名称可展开设备</div>
           <div id="clientList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="clientMsg"></div>
-        </div>
-
-        <!-- 最近登录记录：含本站与第三方的全部登录流水，原挂在「登录设备」卡底部的分区，现独立成卡 -->
-        <div class="card" id="loginLogCard">
-          <div class="card-title-row">
-            <h3>🕘 最近登录记录</h3>
-          </div>
-          <div id="loginLogList"><div class="empty">正在加载…</div></div>
         </div>
 
         <!-- 退出登录：大卡片 -->
