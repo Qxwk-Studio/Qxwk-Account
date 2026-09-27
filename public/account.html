@@ -155,35 +155,32 @@
   }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* 最近登录记录（已合并进「登录设备」卡底部的 .sub-block） */
-  .login-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-  .login-item:last-child { border-bottom: none; }
-  .login-item .app { display: flex; align-items: center; gap: 8px; font-weight: 500; }
-  .login-item .app .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
-  .login-item .app.direct .dot { background: var(--text-tertiary); }
-  .login-item .time { color: var(--text-tertiary); font-size: 0.8rem; }
   .empty { text-align: center; color: var(--text-tertiary); font-size: 0.84rem; padding: 14px 0; }
 
-  /* ========= 登录设备（多会话：可逐个下线） ========= */
+  /* ========= 会话行：三张卡（登录设备 / 已授权网站 / 最近登录记录）共用同一套结构 =========
+     统一形状 = 左 .main（第一行 .dev 设备或站点名，第二行 .meta 灰字说明）+ 右按钮或徽章，
+     三张卡因此行高、分隔线、按钮位置一致；窄屏靠 .main 的 min-width:0 与 overflow-wrap 换行而不溢出 */
   .card-title-row .push-right { margin-left: auto; }
-  .session-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .session-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .session-item:last-child { border-bottom: none; }
-  .session-item .dev { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 0.9rem; }
+  .session-item > .main { min-width: 0; flex: 1; }
+  .session-item .dev { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 0.9rem; overflow-wrap: anywhere; }
   .session-item .dev .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); flex-shrink: 0; }
   .session-item.current .dev .dot { background: var(--primary); }
-  .session-item .meta { font-size: 0.76rem; color: var(--text-tertiary); margin-top: 3px; }
-  /* 已授权网站：每个站点一行，点站点名展开（<details>）后列出该站点里的登录设备 */
-  .site summary { cursor: pointer; list-style: none; display: block; }
+  .session-item .meta { font-size: 0.76rem; color: var(--text-tertiary); margin-top: 3px; overflow-wrap: anywhere; }
+  .session-item .time { color: var(--text-tertiary); font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+  .session-item .btn-sm, .session-item .badge-current { flex-shrink: 0; }
+  /* 已授权网站：站点名可点，展开（<details>）后列出该站点里的登录设备。
+     箭头用 flex 排在名字左侧：::before 若是行内内容，会被块级 flex 的 .dev 挤到自己一行 */
+  .site summary { cursor: pointer; list-style: none; display: flex; align-items: flex-start; gap: 4px; }
   .site summary::-webkit-details-marker { display: none; }
-  .site summary::before { content: '▸'; color: var(--text-tertiary); font-size: 0.7rem; display: inline-block; width: 12px; }
+  .site summary::before { content: '▸'; color: var(--text-tertiary); font-size: 0.7rem; line-height: 1.5; flex-shrink: 0; }
   .site[open] summary::before { content: '▾'; }
+  .site .head { min-width: 0; flex: 1; }
   .site-devs { margin: 8px 0 2px 4px; padding-left: 14px; border-left: 2px solid var(--border); }
-  .site-dev { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+  .site-dev { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
   .site-dev .meta { margin-top: 0; }
   .badge-current { font-size: 0.72rem; font-weight: 600; color: var(--primary); background: var(--primary-light); padding: 2px 10px; border-radius: 40px; white-space: nowrap; }
-  /* 卡片内分区（如「登录设备」卡底部的最近登录记录）：分隔线 + 小标题 */
-  .sub-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-  .sub-block-title { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
 
   /* ========= Profile Form（修改个人资料） ========= */
   label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
@@ -472,6 +469,8 @@
     .main { padding: 24px 16px 40px; }
     .card { padding: 18px; }
     .profile-head { gap: 12px; }
+    /* 窄屏放不下「标题 + 右侧批量操作按钮」时让它换行，而不是把按钮挤出卡片 */
+    .card-title-row { flex-wrap: wrap; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -684,19 +683,15 @@
           <button class="btn btn-primary" id="generateInviteBtn" data-action="loadInviteCode" style="margin-top:14px;">生成邀请码</button>
         </div>
 
-        <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线；底部合并了「最近登录记录」） -->
+        <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线） -->
         <div class="card" id="sessionCard">
           <div class="card-title-row">
             <h3>💻 登录设备</h3>
             <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions">下线其他所有设备</button>
           </div>
-          <div class="card-subtitle">只显示在通行证本站直接登录的设备；凡来自其他网站 / 应用的登录都在下方「已授权网站」卡</div>
+          <div class="card-subtitle" title="只统计不带来源标识的会话，即在通行证本站直接登录的设备；凡来自其他网站 / 应用的登录都在下方「已授权网站」卡里，可在那里整站注销">只显示在本站直接登录的设备 · 第三方登录见「已授权网站」</div>
           <div id="sessionList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="sessionMsg"></div>
-          <div class="sub-block">
-            <div class="sub-block-title">🕘 最近登录记录</div>
-            <div id="loginLogList"><div class="empty">正在加载…</div></div>
-          </div>
         </div>
 
         <!-- 已授权网站（账号中心里「不是在通行证本站直接登录」的会话全归这里，可整来源注销；
@@ -706,9 +701,17 @@
           <div class="card-title-row">
             <h3>🌐 已授权网站</h3>
           </div>
-          <div class="card-subtitle">除本站直接登录外，拿着你通行证登录的其他网站 / 应用都在这里；点名称可展开查看它的登录设备，注销后需在该处重新登录。标「未登记来源」的是调用方自报的名字（未经本站登记）</div>
+          <div class="card-subtitle" title="凡不是在通行证本站直接登录的会话都在这里：已登记站点显示站点名与 origin；标「未登记来源」的名字由调用方自报、未经本站登记。点名称可展开查看该处的登录设备，注销后需在该网站 / 应用重新登录">其他网站 / 应用使用你通行证登录的会话 · 点名称可展开设备</div>
           <div id="clientList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="clientMsg"></div>
+        </div>
+
+        <!-- 最近登录记录：含本站与第三方的全部登录流水，原挂在「登录设备」卡底部的分区，现独立成卡 -->
+        <div class="card" id="loginLogCard">
+          <div class="card-title-row">
+            <h3>🕘 最近登录记录</h3>
+          </div>
+          <div id="loginLogList"><div class="empty">正在加载…</div></div>
         </div>
 
         <!-- 退出登录：大卡片 -->

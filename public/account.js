@@ -391,7 +391,7 @@ async function loadSessions() {
         // s.id 为服务端返回的整数 rowid，作为 data-id 交给委托取值（无字符串注入风险）
         : '<button class="btn btn-ghost btn-sm" data-action="revokeSession" data-id="' + s.id + '">下线</button>';
       return '<div class="session-item' + (s.current ? ' current' : '') + '">'
-        + '<div><div class="dev"><span class="dot"></span>' + escapeHtml(s.device) + '</div>'
+        + '<div class="main"><div class="dev"><span class="dot"></span>' + escapeHtml(s.device) + '</div>'
         + '<div class="meta">' + meta + '</div></div>' + right + '</div>';
     }).join('');
   } catch (e) {
@@ -460,12 +460,15 @@ async function loadClients() {
       // 既不渲染出 "null"，也提醒用户这个名字是调用方自报的，不可当权威
       var src = c.unregistered ? '未登记来源 · ' : (c.origin ? escapeHtml(c.origin) + ' · ' : '');
       var head = src + c.session_count + ' 处登录 · 最近活跃 ' + fmtDateTime(c.last_seen_at);
+      // 行的形状与「登录设备」卡一致：左 .main 里第一行站点名、第二行灰字说明，右侧是注销按钮；
+      // 站名与说明分两行的原因是 .dev 是块级 flex，若放在 <summary> 平级，箭头会被挤到单独一行，
+      // 所以用 .head 包住这两行，箭头由 CSS 用 flex 排在 .head 左侧
       return '<div class="session-item">'
-        + '<div style="min-width:0;flex:1">'
-        + '<details class="site"><summary>'
+        + '<div class="main">'
+        + '<details class="site"><summary><span class="head">'
         + '<span class="dev"><span class="dot"></span>' + escapeHtml(c.name) + '</span>'
         + '<span class="meta">' + head + '</span>'
-        + '</summary><div class="site-devs">' + devs + '</div></details>'
+        + '</span></summary><div class="site-devs">' + devs + '</div></details>'
         + '</div>'
         // c.id 对已登记站点是 apps.id（数字），对未登记来源是原始串（字符串），所以必须转义后再放进属性
         + '<button class="btn btn-ghost btn-sm" data-action="revokeClient" data-id="' + escapeHtml(String(c.id)) + '">注销登录</button>'
@@ -492,7 +495,7 @@ async function revokeClient(id) {
   }
 }
 
-// 最近登录记录：渲染在「登录设备」卡底部的分区里（原独立「最近登录来源」卡已合并进来）
+// 最近登录记录：含本站与第三方的全部登录流水，现已独立成卡
 async function loadLoginLog() {
   var list = document.getElementById('loginLogList');
   try {
@@ -505,8 +508,10 @@ async function loadLoginLog() {
       // 已登记站点显示站点名；未登记来源显示原始串并标「未登记」（名字是调用方自报的）；两者都无 = 直接访问
       var label = log.app_name ? log.app_name
         : (log.source_origin ? log.source_origin + '（未登记）' : '直接访问');
-      var via = log.app_name ? '' : 'direct';
-      return '<div class="login-item"><span class="app ' + via + '"><span class="dot"></span>' + escapeHtml(label) + '</span><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
+      // 行结构与另两张卡统一（.session-item：左 .dev 名称、右 .time 时间）；
+      // 来源差异只由文字标签表达，不再像以前那样额外用点色区分，免得同一页出现两套点色语义
+      return '<div class="session-item"><div class="main"><div class="dev"><span class="dot"></span>'
+        + escapeHtml(label) + '</div></div><span class="time">' + fmtDateTime(log.created_at) + '</span></div>';
     }).join('');
   } catch (e) {
     list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
