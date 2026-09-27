@@ -73,8 +73,11 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ========= 已登录：主内容区 ========= */
-  .main { flex: 1; padding: 36px 24px 60px; }
+  /* ========= 已登录：主内容区 =========
+     类名**不能**叫 .main：会话行左半块也是 <div class="main">（account.js 动态生成），
+     用同一个选择器会让页面级的这套 padding 顺带打到每一行上（.session-item > .main 只覆盖
+     flex / min-width，不覆盖 padding），卡片里就凭空多出上 36 下 60 的留白 */
+  .page-main { flex: 1; padding: 36px 24px 60px; }
   .container { max-width: var(--container); margin: 0 auto; }
   .page-header { display: flex; align-items: center; margin-bottom: 28px; }
   .page-header h1 { font-size: clamp(1.4rem, 3vw, 1.8rem); font-weight: 700; color: var(--text-primary); }
@@ -159,7 +162,9 @@
 
   /* ========= 会话行：两张卡（登录设备 / 已授权网站）共用同一套结构 =========
      统一形状 = 左 .main（第一行 .dev 设备或站点名，第二行 .meta 灰字说明）+ 右按钮或徽章，
-     两张卡因此行高、分隔线、按钮位置一致；窄屏靠 .main 的 min-width:0 与 overflow-wrap 换行而不溢出 */
+     两张卡因此行高、分隔线、按钮位置一致；窄屏靠 .main 的 min-width:0 与 overflow-wrap 换行而不溢出
+     注：这里的 .main 是**行内左块**（子选择器 .session-item > .main 限定），与页面主内容区无关 ——
+     页面主内容区已改名 .page-main，正是为了避免两者撞名、让页面 padding 漏进每一行 */
   .card-title-row .push-right { margin-left: auto; }
   .session-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .session-item:last-child { border-bottom: none; }
@@ -466,7 +471,7 @@
   }
   @media (max-width: 640px) {
     .navbar-inner { padding: 0 16px; }
-    .main { padding: 24px 16px 40px; }
+    .page-main { padding: 24px 16px 40px; }
     .card { padding: 18px; }
     .profile-head { gap: 12px; }
     /* 窄屏放不下「标题 + 右侧批量操作按钮」时让它换行，而不是把按钮挤出卡片 */
@@ -572,7 +577,7 @@
 </div>
 
 <!-- 已登录 -->
-<div class="main" id="mainContent" style="display:none;">
+<div class="page-main" id="mainContent" style="display:none;">
   <div class="container">
     <div class="page-header">
       <h1>
