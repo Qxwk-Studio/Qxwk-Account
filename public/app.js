@@ -1,5 +1,5 @@
 // Qxwk-Account 通行证 · 共享前端逻辑：API 客户端 + 会话管理
-// 复用自 CityFootprint public/app.js，localStorage key 前缀改为 qxwp_
+// 复用自 Qxwk-CityFootprint docs/app.js，localStorage key 前缀改为 qxwp_
 
 const API_BASE = '/api';
 const LS_TOKEN = 'qxwp_token';

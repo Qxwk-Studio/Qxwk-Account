@@ -1,6 +1,6 @@
 // Qxwk-Account 通行证 · 认证与工具（Worker 版）
 // 密码哈希使用 Web Crypto PBKDF2，零外部依赖
-// 复用自 Qxwk-CityFootprint/src/lib.js；会话为多会话模型（同账号多设备并存，可逐个下线）
+// 复用自 Qxwk-CityFootprint/backend/src/lib.js；会话为多会话模型（同账号多设备并存，可逐个下线）
 
 // 60 种 Material 调色板，保证新用户颜色不重复（直到池子占满）
 export const USER_COLORS = [
