@@ -212,8 +212,14 @@ async function handleApi(request, env) {
     // 用户已不存在时同样视为无效（会话行可能残留）
     const alive = await DB.prepare('SELECT 1 FROM users WHERE id = ?').bind(s.userId).first();
     if (!alive) return json({ valid: false });
+    // 返回给第三方的字段名保持 name / origin 不变（对外契约）：name 取展示名称；
+    // origin 只在 origin 类来源才有值（App 类来源本就没有 origin，回 null，而不是把应用名塞进来冒充）
     const client = s.clientId
-      ? await DB.prepare('SELECT id, name, origin, homepage FROM apps WHERE id = ?').bind(s.clientId).first()
+      ? await DB.prepare(
+          `SELECT id, display_name AS name, homepage,
+                  CASE WHEN match_type = 'origin' THEN match_key END AS origin
+           FROM apps WHERE id = ?`
+        ).bind(s.clientId).first()
       : null;
     return json({ valid: true, userId: s.userId, client: client || null });
   }
@@ -425,12 +431,12 @@ async function handleApi(request, env) {
   }
 
   // GET /api/login-log（登录：最近登录记录，展示在账号中心的「最近登录记录」卡）
-  // 每条带来源：命中白名单的取 apps.name，未登记来源取 source_origin（原始串），两者都无则「直接访问」
+  // 每条带来源：命中白名单的取 apps.display_name，未登记来源取 source_origin（原始串），两者都无则「直接访问」
   if (method === 'GET' && path === '/api/login-log') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
     const logs = await DB.prepare(
-      `SELECT ll.created_at, a.name AS app_name, ll.source_origin
+      `SELECT ll.created_at, a.display_name AS app_name, ll.source_origin
        FROM login_log ll LEFT JOIN apps a ON ll.client_id = a.id
        WHERE ll.user_id = ? ORDER BY ll.id DESC LIMIT 5`
     ).bind(userId).all();
@@ -518,12 +524,14 @@ async function handleApi(request, env) {
 
   // GET /api/clients（登录：已授权来源列表 + 每处各自的登录设备，按来源聚合）
   // 覆盖范围 = 「不是在本站直接登录」的全部会话（补集），三条来源一起列：
-  //   ① client_id 命中 apps 白名单的已登记站点（借 apps 拿站点名 / origin / homepage）
+  //   ① client_id 命中 apps 白名单的已登记站点（借 apps 拿展示名 / origin / homepage）
   //   ② client_id 有值但 apps 里已查不到的行（该站点后来被移出白名单）——没有名字可用，标「已移除的站点」
   //   ③ client_id 为空、client_label 有值的未登记来源——名字就是调用方自报的原始串，标「未登记来源」
   // 通行证本站直连登录（两列皆空）不属于任何来源，归「登录设备」卡（GET /api/sessions）。
   // 故这里**必须**用 LEFT JOIN：用 JOIN 时 ② 会被静默丢掉，那种会话两张卡都看不到、也就永远注销不掉。
   // sessions 子数组给前端「展开该来源看设备」用：每条含 rowid（下线标识）/设备名/时间/是否当前设备
+  // 对外 JSON 字段名仍是 name / origin（前端与 README 都按它渲染）：name 取 display_name；
+  // origin 只在 origin 类来源有值，name 类（App）来源回 null，免得把应用名当 origin 显示出来
   if (method === 'GET' && path === '/api/clients') {
     const userId = await getUserId(DB, request);
     if (!userId) return error('未登录', 401);
@@ -531,7 +539,9 @@ async function handleApi(request, env) {
     const rows = await DB.prepare(
       `SELECT s.rowid AS id, s.token, s.user_agent, s.created_at, s.client_id, s.client_label,
               COALESCE(s.last_seen_at, s.created_at) AS last_seen_at,
-              a.name, a.origin, a.homepage
+              a.display_name AS name,
+              CASE WHEN a.match_type = 'origin' THEN a.match_key END AS origin,
+              a.homepage
        FROM sessions s LEFT JOIN apps a ON a.id = s.client_id
        WHERE s.user_id = ? AND (s.client_id IS NOT NULL OR s.client_label IS NOT NULL)
        ORDER BY last_seen_at DESC`

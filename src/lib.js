@@ -148,15 +148,15 @@ export async function resolveClient(DB, request, explicit) {
   // Origin: null 是沙箱 iframe / file:// 等不透明来源按规范发的值；调用方也可能自报 "null"/"undefined"。
   // 这些都不是真来源，当「没有来源」处理——否则「已授权网站」卡里会冒出一个叫 "null" 的来源，既看不懂、也没法跟人对上
   if (!raw || /^(null|undefined)$/i.test(raw)) return { id: null, label: null };
-  // 能解析成 URL 就按 origin 精确匹配（new URL 会规范化大小写与默认端口、去掉路径）；
-  // 否则当作站点名匹配——App 端传的是应用名，没有 origin
+  // 能解析成 URL 就按 origin 匹配（new URL 会规范化大小写与默认端口、去掉路径）；
+  // 否则当作站点名匹配——App 端传的是应用名，没有 origin。
+  // 两档在 apps 表里由 match_type 标明，查的是同一列 match_key（见 migrations/0002_apps_restructure.sql）
   let origin = '';
   try { origin = new URL(raw).origin; } catch (e) { origin = ''; }
   // 通行证自己的页面（同源）不算第三方来源，否则 account.html 的登录会被误标成某个站点
   if (origin && origin === new URL(request.url).origin) return { id: null, label: null };
-  const row = origin
-    ? await DB.prepare('SELECT id FROM apps WHERE origin = ?').bind(origin).first()
-    : await DB.prepare('SELECT id FROM apps WHERE name = ?').bind(raw).first();
+  const row = await DB.prepare('SELECT id FROM apps WHERE match_type = ? AND match_key = ?')
+    .bind(origin ? 'origin' : 'name', origin || raw).first();
   if (row) return { id: row.id, label: null };
   // 未登记：截断到 100 字符再入库，避免调用方塞超长串把界面和库撑坏
   return { id: null, label: (origin || raw).slice(0, 100) };

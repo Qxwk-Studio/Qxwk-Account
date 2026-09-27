@@ -29,7 +29,8 @@
 
 ```
 ├── migrations/
-│   └── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps / login_log / login_attempts(失败限流) / invite_codes / settings / email_codes
+│   ├── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps / login_log / login_attempts(失败限流) / invite_codes / settings / email_codes
+│   └── 0002_apps_restructure.sql  # 重建 apps：拆出「检测名称」(match_type + match_key) 与「展示名称」(display_name)
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 全面放行 + 静态资源回退
 │   └── lib.js              # PBKDF2 密码哈希 / 会话(多会话 + 来源站点归属) / 设备名解析 / 颜色分配 / 邀请码生成 / SHA-256 + getAvatarUrl / sendEmail(Resend) + genEmailCode
@@ -107,10 +108,10 @@
 **① 在通行证登记你的站点**（否则账号中心的「已授权网站」卡认不出你，会话会被记为「通行证直连登录」）：
 
 ```bash
-npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (name, origin, homepage) VALUES ('你的站点名', 'https://你的域名', 'https://你的域名')"
+npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (display_name, match_type, match_key, homepage) VALUES ('你的站点名', 'origin', 'https://你的域名', 'https://你的域名')"
 ```
 
-`origin` 必须是**规范 origin**（`scheme://host[:port]`，无路径、无末尾斜杠），要与请求里的 `Origin` 完全一致。
+`match_type='origin'` 时 `match_key` 必须是**规范 origin**（`scheme://host[:port]`，无路径、无末尾斜杠），要与请求里的 `Origin` 完全一致。
 
 **② 前端直接跨域登录换 token**（推荐：密码只经你的**前端 JS**，不落到你的服务器，更不要自己存密码）：
 
@@ -134,7 +135,7 @@ if (r.status === 200) {
 }
 ```
 
-浏览器调用时 `Origin` 头本来就会带，`client` 可省；但**安卓 App / 服务端直连没有 `Origin` 头，必须显式传 `client`**（类型为 URL 时按 origin 匹配 `apps.origin`，否则按应用名匹配 `apps.name`）。不在白名单的值一律按「直连登录」处理，不会被误记成某个站点。
+浏览器调用时 `Origin` 头本来就会带，`client` 可省；但**安卓 App / 服务端直连没有 `Origin` 头，必须显式传 `client`**（能解析成 URL 的值按 `match_type='origin'` 查 `apps.match_key`，否则按 `match_type='name'` 查——App 类来源登记时 `match_key` 填应用名，**大小写要与 App 上报的完全一致**）。不在白名单的值一律按「直连登录」处理，不会被误记成某个站点。
 
 **③ 你的后端验证 token**（可选：前端也可以只带 `Authorization: Bearer` 调 `/api/me` 验证；但要用户资料只能走 `/api/me`，`/api/verify` 只回身份归属）：
 
@@ -173,7 +174,7 @@ npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET val
 - **密码安全**：PBKDF2（10 万次迭代 + 随机盐）哈希存储，不落明文；会话为 64 位随机 token。
 - **登录失败限流**：按**账号**（昵称/邮箱统一转小写作为键）计数，记在 `login_attempts` 表：15 分钟窗口内失败满 5 次即锁定该账号 15 分钟，期间登录返回 429，登录成功立即删除记录。为什么不按 IP —— D1 场景下拿不到稳定可信的客户端 IP，而按账号限流正好挡住「针对某个账号的暴力破解」这一主要威胁。**记账与账号是否存在无关**（不存在的账号同样计数、同样会锁），否则「有没有 429」就成了该账号是否注册的探针，防枚举失效。锁定期内继续失败**不会**延长锁定（避免被无限续锁），代价是攻击者可以故意失败 5 次把某人临时锁 15 分钟，这是换取「无法无限撞密码」的已知取舍。走邮箱重置密码成功会一并清掉该账号的失败记录，用户不会被自己撞出的锁挡在门外。
 - **多会话模型**：同一账号可在多台设备同时登录，登录/注册/设密只**新增**一条会话，不再踢掉旧会话。`sessions` 表存 `token`（主键，**存的是 SHA-256 哈希**，明文只在登录响应里返回一次；改造前签发的老会话库里仍是明文，由 `resolveSession()` 在首次被人使用时**就地迁移**为哈希，用户不必重新登录）、`user_id`、`user_agent`（UA 原始串）、`client_id`（来源站点，见下条）、`created_at`、`last_seen_at`；设备名由后端 `describeDevice()` 统一解析（UA 顺序判定：先 Edge/Opera 再 Chrome 再 Safari；iOS 上的浏览器是 WebKit 内核、UA 里不含 `Chrome`/`Firefox`，故单独判 `CriOS`/`FxiOS`/`EdgiOS` 前缀），前端只消费结果字符串。`last_seen_at` 在鉴权时**节流滚动更新**（与上次相差 >1 小时才写库，避免每个请求都产生写入）。会话**不自动过期**，但 `createSession` 会顺带回收「**90 天无人使用**」的会话（`COALESCE(last_seen_at, created_at)` 判据，无 `last_seen_at` 的老行按创建时间算），避免 `sessions` 表只增不减；重置密码会撤销全部会话，改密码保留当前会话。下线接口以 `rowid` 为会话标识，并在 `WHERE` 中限定 `user_id`，防止越权删除他人会话。**「登录设备」卡只列在通行证本站直接登录的会话**（`client_id` 与 `client_label` 都为空），其余来源全部归「已授权网站」卡——两张卡合起来正好覆盖全部会话，不重不漏（这一点是硬约束：早先用内连接查 `apps`，白名单站点被删后遗留的会话两张卡都看不到、也就永远注销不掉）。
-- **第三方接入与来源归属**：跨站 SSO 已下线，第三方站点改为**自己调 `/api/login`（或 `/api/register`）拿 token 并自行保存**，本站不再做跳转授权。为了让用户看清「哪些网站拿着我的登录」，登录/注册接口接受可选 `client`：传站点 origin（浏览器）或应用名（安卓 App / 服务端直连无 `Origin` 头），服务端由 `resolveClient()` 分两档记来源：**命中 `apps` 白名单** → 写 `sessions.client_id`（站点名 / origin 以库为准）；**未命中** → 写 `sessions.client_label`（自报的原始串，界面标「未登记来源」，绝不当作可信站点名，但**能注销**）；**两者都无**（本站同源页面 / 没声明来源又没 `Origin` 头）→ 两列皆空，才是「本站直连登录」。同源（通行证自己的页面）不会被误标成站点。账号中心「已授权网站」卡按这两个字段聚合展示（外加 `apps` 行已被删的 `client_id`，兜底名「已移除的站点」），`POST /api/clients/revoke` 按 `id` 撤销本账号在该来源的全部会话（= 该处需重新登录）——id 为纯数字按 `client_id` 匹配，否则按 `client_label` 匹配。下游后端校验用户带来的 token 用 `POST /api/verify`（body 传 `token` 或 `Authorization: Bearer`，无效返回 `200 {valid:false}`），它比 `/api/me` 多返回 `client`（token 的来源站点），且**不**滚动写 `last_seen_at`、不写登录日志（允许高频调用）。**`client` 只能当「来源标注」，不能当鉴权依据**：服务端调用可以随意伪造 `Origin` 头，`resolveClient` 的白名单仅确保「标出来的站点名是登记过的」，不代表调用者真的来自该站点；同理 `/api/verify` 不做调用方鉴权，任何人拿到 token 都能验证它（故它只回 `{valid, userId, client}`，不含用户资料）。
+- **第三方接入与来源归属**：跨站 SSO 已下线，第三方站点改为**自己调 `/api/login`（或 `/api/register`）拿 token 并自行保存**，本站不再做跳转授权。为了让用户看清「哪些网站拿着我的登录」，登录/注册接口接受可选 `client`：传站点 origin（浏览器）或应用名（安卓 App / 服务端直连无 `Origin` 头），服务端由 `resolveClient()` 分两档记来源：**命中 `apps` 白名单**（上报值能解析成 URL 就按 `match_type='origin'` 查 `match_key`，否则按 `match_type='name'` 查——`name` 类存 App 上报的原样应用名，区分大小写）→ 写 `sessions.client_id`（展示名 / origin 以库为准）；**未命中** → 写 `sessions.client_label`（自报的原始串，界面标「未登记来源」，绝不当作可信站点名，但**能注销**）；**两者都无**（本站同源页面 / 没声明来源又没 `Origin` 头）→ 两列皆空，才是「本站直连登录」。同源（通行证自己的页面）不会被误标成站点。账号中心「已授权网站」卡按这两个字段聚合展示（外加 `apps` 行已被删的 `client_id`，兜底名「已移除的站点」），`POST /api/clients/revoke` 按 `id` 撤销本账号在该来源的全部会话（= 该处需重新登录）——id 为纯数字按 `client_id` 匹配，否则按 `client_label` 匹配。下游后端校验用户带来的 token 用 `POST /api/verify`（body 传 `token` 或 `Authorization: Bearer`，无效返回 `200 {valid:false}`），它比 `/api/me` 多返回 `client`（token 的来源站点），且**不**滚动写 `last_seen_at`、不写登录日志（允许高频调用）。**`client` 只能当「来源标注」，不能当鉴权依据**：服务端调用可以随意伪造 `Origin` 头，`resolveClient` 的白名单仅确保「标出来的站点名是登记过的」，不代表调用者真的来自该站点；同理 `/api/verify` 不做调用方鉴权，任何人拿到 token 都能验证它（故它只回 `{valid, userId, client}`，不含用户资料）。
 - **CORS 与页面安全**：API 全面放行 CORS —— 因为鉴权靠显式 `Bearer` 头、不使用 cookie，不存在「浏览器自动附带凭证」的 CSRF 面，放行才能让任意站点前端直接跨域登录。HTML 页面由 Worker 统一补 `Content-Security-Policy`（`script-src 'self'`、`style-src 'self' 'unsafe-inline'`、`img-src` 放行 `weavatar.com`、`frame-ancestors 'self'` 等）+ `X-Content-Type-Options` + `Referrer-Policy`（见 `worker.js` 的 `addSecurityHeaders`）。**`script-src` 已收紧到只有 `'self'`**（**唯一例外**：CF 边缘自动注入的 Web Analytics beacon `static.cloudflareinsights.com`，`connect-src` 同步放行 `cloudflareinsights.com`；只要该域名的 Web Analytics 开着，CF 就会往 HTML 里塞这段脚本，不放行则每次访问控制台报一条违规——关掉 Web Analytics 后即可把这两个域名删掉）：原先各页的内联 `<script>` 与内联 `on*` 处理器已全部抽成 `public/*.js` 外链、改为 `data-action` + 事件委托（`login.js` / `account.js` 里的 `ACTIONS` 表）。因此**新增页面或按钮时不要再写内联脚本或 `onclick`**——会被 CSP 直接拦掉且只在控制台报错；改用独立 `.js` + `data-action`。`style-src` 仍保留 `'unsafe-inline'`：`login/account` 的公共样式虽已抽到 `public/base.css`，但各页仍有专有内联 `<style>` 块、且多处用 `style="..."` 做数据驱动着色，拆成 class 不划算。`frame-ancestors` 用 `'self'` 而**不是** `'none'`：`login.html` / `account.html` 的欢迎面板就是 `<iframe src="setup.html">`，`'none'` 会把**同源**嵌套一起挡掉（面板白掉、控制台报 Framing 违规），`'self'` 既放行同源嵌套、又照样挡住第三方站点把本站嵌进它的 iframe。**这些头依赖 `wrangler.toml` 的静态资源配置**：`[assets]` 必须写 `binding = "ASSETS"`（否则 `env.ASSETS` 是 undefined，未命中静态资源的路径会抛异常、线上表现成 Cloudflare 1101）并写 `run_worker_first = true`。默认的 `run_worker_first = false` 是「命中静态文件就由资源服务直接响应、**不进 Worker**」，那样 `/` 与各 `.html` 都会绕过 Worker，CSP 等头一条都不会生效（只有 `/api/*` 是天然进 Worker 的）。
 - **颜色分配**：注册按顺序从 60 色 Material 调色板取色，池子占满后循环。
 - **邀请码**：8 位去易混淆字符（I/O/0/1），原子 `UPDATE ... WHERE used_at IS NULL` 消耗（用后即焚）；一码制——用户始终只保留一个未使用码，旧码消耗后才生成下一个，防止生成过多。**生成需邮箱已绑定且已验证**（邀请码是「带人进来」的凭证，未验证邮箱的账号不该发码），但**只在生成那一步校验**：已有未使用码照常回显，不受邮箱状态影响（否则已分享出去的码会突然从界面消失，用户以为丢了）。
@@ -230,7 +231,7 @@ npx wrangler d1 migrations apply qxwk-account --remote
 ```
 
 ```bash
-npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (name, origin, homepage) VALUES ('City Footprint', 'https://travel.qxwkstudio.top', 'https://travel.qxwkstudio.top')"
+npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (display_name, match_type, match_key, homepage) VALUES ('City Footprint', 'origin', 'https://travel.qxwkstudio.top', 'https://travel.qxwkstudio.top')"
 ```
 
 > 已有线上旧库：新增的**表**（如 `login_attempts`）重跑一次建库文件即可补建（`npx wrangler d1 execute qxwk-account --remote --file migrations/0001_init.sql`）；新增的**列**（`sessions.user_agent` / `last_seen_at` / `client_id` / `client_label`）`CREATE TABLE IF NOT EXISTS` 补不了，必须逐条 `ALTER TABLE sessions ADD COLUMN ...` 手工加。**注意 `wrangler d1 migrations apply` 也补不了列**：线上库不是用它建的（`migrations list --remote` 里 `0001_init.sql` 仍显示「待应用」），且该文件通篇 `IF NOT EXISTS`，跑一遍只是把它记成已应用、并不会给已存在的表加列。漏加 `client_label` 会让注册/登录直接 500。
@@ -239,6 +240,21 @@ npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO a
 # 已有线上旧库按需逐条执行（已存在的列会报 duplicate column name，忽略即可）
 npx wrangler d1 execute qxwk-account --remote --command "ALTER TABLE sessions ADD COLUMN client_label TEXT"
 ```
+
+### 3.1 重建 apps 表（0002，一次性结构变更）
+
+`apps` 不再用「一个 `name` 兼两职」，改成 **检测名称（`match_type` + `match_key`）** + **展示名称（`display_name`）**：浏览器来源按 `match_type='origin'` 匹配规范 origin，App 来源按 `match_type='name'` 匹配它上报的原样应用名，不必再往 `origin` 里塞占位串。
+
+这是**重建表**（不是加列），线上旧库手工跑一次：
+
+```bash
+# ① 先看现有登记行，确认下面 match_type 的判定符合预期
+npx wrangler d1 execute qxwk-account --remote --command "SELECT id, name, origin, homepage FROM apps"
+# ② 执行重建：沿用旧 id（sessions.client_id / login_log.client_id 存的就是 apps.id，换 id 会让历史记录全变成「已移除的站点」）
+npx wrangler d1 execute qxwk-account --remote --file migrations/0002_apps_restructure.sql
+```
+
+> ⚠️ **必须与本次代码改动同一次上线**：`src/lib.js`、`src/worker.js` 里已不再有 `apps.name` / `apps.origin`，只查 `display_name` / `match_type` / `match_key`。先跑 SQL 后发代码（或反过来）都会让「已授权网站」卡认不出来源——旧列没了、代码查不到，第三方会话会临时全变成「已移除的站点」。
 
 ### 4. 配置邮件服务（Resend）与 KEY
 
