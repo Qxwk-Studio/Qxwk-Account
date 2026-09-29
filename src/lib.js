@@ -181,6 +181,12 @@ export function describeDevice(ua) {
   let os = '';
   if (/Windows NT/.test(s)) os = 'Windows';
   else if (/iPhone|iPad|iPod/.test(s)) os = 'iOS';
+  // 鸿蒙必须判在 Android 之前，也不能放到 Linux 之后：HarmonyOS 4 及更早的 UA 形如
+  //   (Linux; Android 10; HarmonyOS; ELS-AN00; HMSCore x.y.z)
+  // 既含 "Android" 又含 "Linux"，放后面会被判成安卓设备（这正是「鸿蒙显示成安卓」的原因）。
+  // 覆盖两种内核：HarmonyOS NEXT（纯自研，无 Android 字样）报 OpenHarmony，其浏览器内核报 ArkWeb。
+  // 只认这三个标记、**不**认 HMSCore：EMUI（安卓）华为手机浏览器的 UA 里同样带 HMSCore，认它会把安卓误标成鸿蒙
+  else if (/HarmonyOS|OpenHarmony|ArkWeb/.test(s)) os = 'HarmonyOS';
   else if (/Android/.test(s)) os = 'Android';
   else if (/Mac OS X/.test(s)) os = 'macOS';
   else if (/Linux/.test(s)) os = 'Linux';
