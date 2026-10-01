@@ -47,7 +47,7 @@ async function handleApi(request, env) {
   const method = request.method;
   const DB = env.DB;
 
-  // POST /api/register（邀请码可配置：invite_code_required=1 时需一次性邀请码）
+  // POST /api/register（邀请码注册：一律需要一次性邀请码，入口开关是 invite_register_enabled）
   if (method === 'POST' && path === '/api/register') {
     const body = await request.json().catch(() => ({}));
     const nickname = String(body.nickname || '').trim();
@@ -57,20 +57,17 @@ async function handleApi(request, env) {
     if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符');
     if (!isValidPassword(password)) return error('密码需为 4-50 个字符');
     if ((await getSetting(DB, 'invite_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403);
-    const inviteRequired = (await getSetting(DB, 'invite_code_required', '1')) === '1';
 
     const existing = await DB.prepare('SELECT id FROM users WHERE nickname = ?').bind(nickname).first();
     if (existing) return error('昵称已被占用，换一个吧', 409);
 
-    // invite_code_required=1 时原子消耗一次性邀请码（用后即焚，防止并发重复使用）
-    if (inviteRequired) {
-      if (!inviteCode) return error('请填写邀请码');
-      const consume = await DB.prepare(
-        `UPDATE invite_codes SET used_at = datetime('now'), used_by = NULL
-         WHERE code = ? AND used_at IS NULL`
-      ).bind(inviteCode).run();
-      if (consume.meta.changes === 0) return error('邀请码无效或已被使用', 403);
-    }
+    // 原子消耗一次性邀请码（用后即焚，防止并发重复使用）
+    if (!inviteCode) return error('请填写邀请码');
+    const consume = await DB.prepare(
+      `UPDATE invite_codes SET used_at = datetime('now'), used_by = NULL
+       WHERE code = ? AND used_at IS NULL`
+    ).bind(inviteCode).run();
+    if (consume.meta.changes === 0) return error('邀请码无效或已被使用', 403);
 
     const passwordHash = await hashPassword(password);
     const color = await assignColor(DB);
@@ -78,10 +75,8 @@ async function handleApi(request, env) {
       .bind(nickname, passwordHash, color).run();
     const userId = res.meta.last_row_id;
     // 回填实际用户 id
-    if (inviteRequired) {
-      await DB.prepare('UPDATE invite_codes SET used_by = ? WHERE code = ?')
-        .bind(userId, inviteCode).run();
-    }
+    await DB.prepare('UPDATE invite_codes SET used_by = ? WHERE code = ?')
+      .bind(userId, inviteCode).run();
     // 来源站点：显式 body.client 优先，否则读 Origin 头；命中 apps 白名单记 client_id，
     // 未命中的记 client_label（界面标「未登记来源」）；两者皆无 = 本站直连登录（见 lib.js resolveClient）
     const src = await resolveClient(DB, request, body.client);
@@ -90,12 +85,63 @@ async function handleApi(request, env) {
     return json({ token, userId, nickname, color, email: null, avatar: null, created_at: new Date().toISOString() }, 201);
   }
 
-  // GET /api/config（公开：注册配置，供前端决定是否显示邀请码输入框）
+  // POST /api/register/email（邮箱注册：邮箱 + 邮箱验证码 + 昵称 + 密码）
+  // 单独一条路由、不与 /api/register 合并：两者的凭证校验完全不同（消耗一次性邀请码 vs 核销邮箱验证码），
+  // 揉进一个 if 里会让分支层层嵌套、改一处要读两处。共用的只有「建号 + 开会话 + 同一响应形状」这几行
+  // 开关是独立的 email_register_enabled（见 GET /api/config）；发码走 /api/email/code 的 purpose='signup'
+  if (method === 'POST' && path === '/api/register/email') {
+    const body = await request.json().catch(() => ({}));
+    const nickname = String(body.nickname || '').trim();
+    const password = String(body.password || '');
+    const email = String(body.email || '').trim();
+    const code = String(body.code || '').trim();
+
+    if ((await getSetting(DB, 'email_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
+    if (!code) return error('请输入验证码');
+    if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符');
+    if (!isValidPassword(password)) return error('密码需为 4-50 个字符');
+
+    const nickTaken = await DB.prepare('SELECT 1 FROM users WHERE nickname = ?').bind(nickname).first();
+    if (nickTaken) return error('昵称已被占用，换一个吧', 409);
+    // 早于验证码核销再查一次邮箱占用：发码时已拦过，但码有 10 分钟有效期，期间该邮箱可能已被注册
+    const emailTaken = await DB.prepare('SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
+    if (emailTaken) return error('该邮箱已注册，请直接登录或找回密码', 409);
+
+    // 核销注册验证码（user_id 哨兵 0，见 /api/email/code 的 signup 分支）；
+    // 不区分「不存在 / 过期 / 已用」，统一报错，避免把哪一步失败透给前端
+    const row = await DB.prepare(
+      `SELECT id FROM email_codes WHERE user_id = 0 AND email = ? AND purpose = 'signup'
+       AND code = ? AND used_at IS NULL AND expires_at > datetime('now')`
+    ).bind(email, code).first();
+    if (!row) return error('验证码错误或已过期', 400);
+    // 原子标记已用（用后即焚）：并发重放时第二个请求到此会失败，也就不会建出两个同邮箱账号
+    const done = await DB.prepare(
+      `UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL`
+    ).bind(row.id).run();
+    if (done.meta.changes === 0) return error('验证码错误或已过期', 400);
+
+    const passwordHash = await hashPassword(password);
+    const color = await assignColor(DB);
+    // 邮箱刚经验证码核销 → 直接置 email_verified=1（相当于注册即完成邮箱验证）
+    const res = await DB.prepare(
+      'INSERT INTO users (nickname, password_hash, color, email, email_verified) VALUES (?, ?, ?, ?, 1)'
+    ).bind(nickname, passwordHash, color, email).run();
+    const userId = res.meta.last_row_id;
+    // 来源站点与登录/邀请码注册同一套判定（见 lib.js resolveClient）
+    const src = await resolveClient(DB, request, body.client);
+    const token = await createSession(DB, userId, request.headers.get('User-Agent'), src.id, src.label);
+    // 响应字段与 /api/login、/api/register 对齐：本路径有邮箱，故 email / avatar 不是 null
+    return json({ token, userId, nickname, color, email, avatar: await getAvatarUrl(email), created_at: new Date().toISOString() }, 201);
+  }
+
+  // GET /api/config（公开：三个注册开关，供前端决定「邮箱注册」与「邀请码注册」两个 tab 的显隐）
+  // 邀请码注册一律需要邀请码，故不再有「必填与否」这一项
   if (method === 'GET' && path === '/api/config') {
-    const inviteCodeRequired = (await getSetting(DB, 'invite_code_required', '1')) === '1';
     const inviteGenerateEnabled = (await getSetting(DB, 'invite_generate_enabled', '1')) === '1';
     const inviteRegisterEnabled = (await getSetting(DB, 'invite_register_enabled', '1')) === '1';
-    return json({ inviteCodeRequired, inviteGenerateEnabled, inviteRegisterEnabled });
+    const emailRegisterEnabled = (await getSetting(DB, 'email_register_enabled', '1')) === '1';
+    return json({ inviteGenerateEnabled, inviteRegisterEnabled, emailRegisterEnabled });
   }
 
   // GET /api/invite-code（登录用户：有未使用码直接返回，无则生成一个；一码制，防止生成过多）
@@ -282,18 +328,32 @@ async function handleApi(request, env) {
   // POST /api/email/code（发送邮箱验证码；由原 /api/email/send-code 与 /api/forgot-send 合并而来）
   // purpose = 'verify'（默认，绑定邮箱）：需登录，可明确报错
   // purpose = 'reset'（找回密码）：无需登录，且错误文案必须模糊（见下方 60 秒限发的处理）
+  // purpose = 'signup'（邮箱注册）：无需登录，校验邮箱未被占用后发码，核销方为 POST /api/register/email
   if (method === 'POST' && path === '/api/email/code') {
     if (!env.EMAIL_API_KEY) return error('邮件服务未配置，请联系管理员', 503);
     const body = await request.json().catch(() => ({}));
-    const purpose = body.purpose === 'reset' ? 'reset' : 'verify';
+    const purpose = body.purpose === 'reset' ? 'reset'
+      : (body.purpose === 'signup' ? 'signup' : 'verify');
     const email = String(body.email || '').trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
 
-    // 验证码归属用户：verify 取当前登录用户；reset 按邮箱反查并要求已绑定且已验证
+    // 验证码归属用户：verify 取当前登录用户；reset 按邮箱反查并要求已绑定且已验证；
+    // signup 是注册场景——此刻账号还不存在，user_id 用 0 作哨兵（email_codes.user_id 无外键约束，
+    // 故 0 挂不到任何真实用户上）。注意哨兵是「所有注册者共用」的，下方删旧码处对 signup 另有处理
     let userId;
     if (purpose === 'verify') {
       userId = await getUserId(DB, request);
       if (!userId) return error('未登录', 401);
+    } else if (purpose === 'signup') {
+      // 邮箱注册开关独立于邀请码的两个开关（见 migrations/0001_init.sql 的 settings 段）
+      if ((await getSetting(DB, 'email_register_enabled', '1')) !== '1') {
+        return error('注册已暂停，暂不接受新注册', 403);
+      }
+      // 已注册邮箱直接报错：与 reset 分支「查不到就报错」同量级的信息暴露，
+      // 换来的是用户立刻知道该去登录 / 找回密码，而不是干等一封永远不来的注册邮件
+      const taken = await DB.prepare('SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
+      if (taken) return error('该邮箱已注册，请直接登录或找回密码', 409);
+      userId = 0;
     } else {
       const owner = await DB.prepare('SELECT id, email_verified FROM users WHERE LOWER(email) = LOWER(?)')
         .bind(email).first();
@@ -314,8 +374,13 @@ async function handleApi(request, env) {
     }
 
     const code = genEmailCode();
-    // 一码制：先删该用户此用途旧码再插入新码（顺带清掉 >1 分钟的旧码）
-    await DB.prepare('DELETE FROM email_codes WHERE user_id = ? AND purpose = ?').bind(userId, purpose).run();
+    // 一码制：先删旧码再插入新码（顺带清掉 >1 分钟的旧码）。signup 的 user_id 是所有人共用的哨兵 0，
+    // 照常按 user_id 删会把**别人**待用的注册码一并删掉，故 signup 必须按 email 定位
+    if (purpose === 'signup') {
+      await DB.prepare("DELETE FROM email_codes WHERE email = ? AND purpose = 'signup'").bind(email).run();
+    } else {
+      await DB.prepare('DELETE FROM email_codes WHERE user_id = ? AND purpose = ?').bind(userId, purpose).run();
+    }
     await DB.prepare(
       `INSERT INTO email_codes (user_id, email, code, purpose, expires_at)
        VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`
@@ -324,6 +389,12 @@ async function handleApi(request, env) {
     try {
       if (purpose === 'reset') {
         await sendEmail(env, email, 'Qxwk 通行证 · 重置密码', renderResetEmail(code));
+      } else if (purpose === 'signup') {
+        await sendEmail(env, email, 'Qxwk 通行证 · 注册验证码', renderBrandEmail({
+          eyebrow: 'Qxwk 通行证', title: '注册验证码',
+          intro: '你好，这是一封用于注册 Qxwk 通行证的验证邮件。请在页面输入下方 6 位验证码完成注册：',
+          code,
+        }));
       } else {
         await sendEmail(env, email, 'Qxwk 通行证 · 邮箱验证码', renderBrandEmail({
           eyebrow: 'Qxwk 通行证', title: '邮箱验证码',

@@ -68,10 +68,12 @@
   .tab {
     flex: 1;
     text-align: center;
-    padding: 9px 10px;
+    /* 三个 tab（登录 / 邮箱注册 / 邀请码注册）比原来的两个更挤，收窄内边距与字号，
+       让「邀请码注册」在 380px 表单宽度下仍能单行放下、不换行 */
+    padding: 9px 6px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-secondary);
     background: transparent;
@@ -236,9 +238,11 @@
       <h2 class="auth-title" id="authTitle">👋 欢迎回来</h2>
       <p class="auth-subtitle" id="authSubtitle">使用 Qxwk 通行证登录，一处登录，通行各站</p>
 
+      <!-- 两个注册 tab 由 GET /api/config 的开关控制显隐：关掉即整块隐藏（见 login.js 末尾的 config 处理） -->
       <div class="tabs">
         <div class="tab active" id="tabLogin" data-action="switchTab" data-mode="login">登录</div>
-        <div class="tab" id="tabReg" data-action="switchTab" data-mode="reg">注册</div>
+        <div class="tab" id="tabEmailReg" data-action="switchTab" data-mode="email">邮箱注册</div>
+        <div class="tab" id="tabReg" data-action="switchTab" data-mode="reg">邀请码注册</div>
       </div>
 
       <form id="loginForm">
@@ -249,12 +253,26 @@
         <div class="msg" id="loginMsg"></div>
       </form>
 
+      <!-- 邮箱注册：邮箱验证码即注册凭证，注册成功即完成邮箱验证（email_verified=1）。
+           是否展示本 tab 由 GET /api/config 的 emailRegisterEnabled 决定（email_register_enabled 设置键） -->
+      <form id="emailRegForm" style="display:none;">
+        <div class="field"><label>邮箱</label><input id="emailRegEmail" type="email" maxlength="100" placeholder="用于登录与找回密码的邮箱" required></div>
+        <div class="field"><button type="button" class="btn btn-primary" id="emailRegSendBtn" data-action="sendSignupCode">发送验证码</button></div>
+        <div class="code-row" id="emailRegCodeRow" style="display:none;">
+          <div class="field"><label>验证码</label><input id="emailRegCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码"></div>
+        </div>
+        <div class="field"><label>昵称</label><input id="emailRegNick" maxlength="20" placeholder="1-20 个字符" required></div>
+        <div class="field"><label>密码</label><input id="emailRegPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
+        <div class="field"><label>确认密码</label><input id="emailRegPass2" type="password" maxlength="50" placeholder="再输入一次" required></div>
+        <button class="btn btn-primary" type="submit" id="emailRegBtn">注册并登录</button>
+        <div class="msg" id="emailRegMsg"></div>
+      </form>
+
       <form id="regForm" style="display:none;">
         <div class="field"><label>昵称</label><input id="regNick" maxlength="20" placeholder="1-20 个字符" required></div>
         <div class="field"><label>密码</label><input id="regPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" required></div>
         <div class="field"><label>确认密码</label><input id="regPass2" type="password" maxlength="50" placeholder="再输入一次" required></div>
-        <div class="field" id="inviteField"><label>邀请码</label><input id="regInvite" maxlength="20" required placeholder="请输入邀请码" autocomplete="off"><div class="hint">邀请码：找已注册的朋友要一个，一个邀请码只能注册一次</div></div>
-        <div class="msg error" id="invitePausedNotice" style="display:none;">⚠️ 注册已暂停，暂不接受新注册</div>
+        <div class="field"><label>邀请码</label><input id="regInvite" maxlength="20" required placeholder="请输入邀请码" autocomplete="off"><div class="hint">邀请码：找已注册的朋友要一个，一个邀请码只能注册一次</div></div>
         <button class="btn btn-primary" type="submit" id="regBtn">注册并登录</button>
         <div class="msg" id="regMsg"></div>
       </form>

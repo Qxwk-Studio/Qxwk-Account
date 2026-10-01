@@ -111,10 +111,11 @@ CREATE INDEX IF NOT EXISTS idx_invite_used ON invite_codes(used_at);
 CREATE INDEX IF NOT EXISTS idx_invite_created ON invite_codes(created_by);
 
 -- 系统设置表（键值对，含默认开关；建表即写入三项默认值）
+-- 三个开关各管一摊、互不影响：生成邀请码 / 邮箱注册 / 邀请码注册
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,                 -- 设置键
   value TEXT NOT NULL                   -- 设置值
 );
-INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_generate_enabled', '1');   -- 邀请码生成开关（'1' 允许生成，'0' 暂停生成）
-INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_register_enabled', '1');   -- 注册开关（'1' 允许注册，'0' 暂停注册）
-INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_code_required', '1');      -- 注册是否需要邀请码（'1' 需要，'0' 不需要）
+INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_generate_enabled', '1');   -- 生成邀请码开关（'1' 允许生成，'0' 暂停生成；只影响账号中心能否取码，不影响已有码注册）
+INSERT OR IGNORE INTO settings (key, value) VALUES ('email_register_enabled', '1');    -- 邮箱注册开关（'1' 允许注册，'0' 暂停注册；关掉即隐藏登录页的「邮箱注册」tab）
+INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_register_enabled', '1');   -- 邀请码注册开关（'1' 允许注册，'0' 暂停注册；关掉即隐藏登录页的「邀请码注册」tab）

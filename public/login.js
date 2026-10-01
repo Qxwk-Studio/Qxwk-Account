@@ -1,5 +1,5 @@
 /* 登录/注册切换 */
-// 表单区当前模式（登录/注册），决定标题与副标题文案
+// 表单区当前模式（login 登录 / email 邮箱注册 / reg 邀请码注册），决定标题与副标题文案
 var currentAuthMode = 'login';
 
 /* 事件绑定：CSP 去掉 script-src 'unsafe-inline' 后内联 onclick / onsubmit 会被拦下，
@@ -9,6 +9,7 @@ var ACTIONS = {
   showForgot: function () { showForgot(); },
   backToLogin: function () { backToLogin(); },
   sendForgotCode: function () { sendForgotCode(); },
+  sendSignupCode: function () { sendSignupCode(); },
 };
 document.addEventListener('click', function (e) {
   var el = e.target.closest('[data-action]');
@@ -20,8 +21,9 @@ document.addEventListener('click', function (e) {
 });
 
 /* 表单提交：原 onsubmit="return doLogin(event)" 等，改为直接绑 submit 事件；
-   doLogin / doRegister / doSetPassword / doForgotReset 内部首行即 e.preventDefault()，与原来 return false 行为等价 */
+   doLogin / doRegister / doEmailRegister / doSetPassword / doForgotReset 内部首行即 e.preventDefault()，与原来 return false 行为等价 */
 document.getElementById('loginForm').addEventListener('submit', doLogin);
+document.getElementById('emailRegForm').addEventListener('submit', doEmailRegister);
 document.getElementById('regForm').addEventListener('submit', doRegister);
 document.getElementById('setPassForm').addEventListener('submit', doSetPassword);
 document.getElementById('forgotForm').addEventListener('submit', doForgotReset);
@@ -29,14 +31,19 @@ document.getElementById('forgotForm').addEventListener('submit', doForgotReset);
 function switchTab(mode) {
   currentAuthMode = mode;
   document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+  document.getElementById('tabEmailReg').classList.toggle('active', mode === 'email');
   document.getElementById('tabReg').classList.toggle('active', mode === 'reg');
   document.getElementById('loginForm').style.display = mode === 'login' ? '' : 'none';
+  document.getElementById('emailRegForm').style.display = mode === 'email' ? '' : 'none';
   document.getElementById('regForm').style.display = mode === 'reg' ? '' : 'none';
-  // 标题随模式切换（需求2）：登录↔注册各自展示对应欢迎词与副标题
-  document.getElementById('authTitle').textContent = mode === 'login' ? '👋 欢迎回来' : '👋 欢迎注册';
-  document.getElementById('authSubtitle').textContent = mode === 'login'
-    ? '使用 Qxwk 通行证登录，一处登录，通行各站'
-    : '注册一个通行证账号，一处登录，通行各站';
+  // 标题随模式切换（需求2）：三种模式各自展示对应欢迎词与副标题
+  var TITLES = {
+    login: ['👋 欢迎回来', '使用 Qxwk 通行证登录，一处登录，通行各站'],
+    email: ['📮 邮箱注册', '用邮箱验证码注册一个通行证账号，注册后邮箱即为已验证'],
+    reg: ['🎟️ 邀请码注册', '凭一次性邀请码注册一个通行证账号'],
+  };
+  document.getElementById('authTitle').textContent = TITLES[mode][0];
+  document.getElementById('authSubtitle').textContent = TITLES[mode][1];
 }
 
 /* 登录/注册/设密/重置成功后的统一结尾：存会话并进入账号中心 */
@@ -109,11 +116,63 @@ async function doRegister(e) {
   return false;
 }
 
-/* 切换到"设置密码"视图（账号密码哈希为空时）：隐藏 tabs + 登录/注册表单，显示设密码表单 */
+/* ---------- 邮箱注册 ---------- */
+
+/* 发送注册验证码：purpose:'signup' = 注册场景（无需登录，服务端校验邮箱未被占用后发码） */
+async function sendSignupCode() {
+  var msg = document.getElementById('emailRegMsg');
+  var btn = document.getElementById('emailRegSendBtn');
+  var email = document.getElementById('emailRegEmail').value.trim();
+  msg.className = 'msg error';
+  msg.textContent = '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
+  btn.disabled = true;
+  msg.textContent = '发送中…';
+  try {
+    await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'signup' }) });
+    msg.className = 'msg ok';
+    msg.textContent = '验证码已发送，10 分钟内有效，请查收';
+    document.getElementById('emailRegCodeRow').style.display = '';
+    forgotCountdown(btn); // 复用找回密码的 60 秒倒计时（末态文案「重新发送验证码」）
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+}
+
+/* 提交邮箱注册：邮箱 + 验证码 + 昵称 + 密码；成功后与登录同一收尾（存会话 → 进账号中心） */
+async function doEmailRegister(e) {
+  e.preventDefault();
+  var msg = document.getElementById('emailRegMsg');
+  var btn = document.getElementById('emailRegBtn');
+  msg.className = 'msg error';
+  var email = document.getElementById('emailRegEmail').value.trim();
+  var code = document.getElementById('emailRegCode').value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return false; }
+  if (!code) { msg.textContent = '请输入验证码'; return false; }
+  if (document.getElementById('emailRegPass').value !== document.getElementById('emailRegPass2').value) {
+    msg.textContent = '两次输入的密码不一致';
+    return false;
+  }
+  btn.disabled = true;
+  msg.textContent = '注册中…';
+  try {
+    var data = await api('/register/email', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email,
+        code: code,
+        nickname: document.getElementById('emailRegNick').value.trim(),
+        password: document.getElementById('emailRegPass').value,
+      }),
+    });
+    msg.className = 'msg ok';
+    msg.textContent = '注册成功，正在进入…';
+    applySession(data);
+  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  return false;
+}
+
+/* 切换到"设置密码"视图（账号密码哈希为空时）：隐藏 tabs + 各注册/登录表单，显示设密码表单 */
 function showSetPassForm(nick) {
-  document.querySelector('.tabs').style.display = 'none';
-  document.getElementById('loginForm').style.display = 'none';
-  document.getElementById('regForm').style.display = 'none';
+  resetAuthView();
   document.getElementById('setPassForm').style.display = '';
   document.getElementById('setPassNick').value = nick || '';
   document.getElementById('setPassNew').value = '';
@@ -163,22 +222,18 @@ function showForgot() {
   document.getElementById('forgotEmail').focus();
 }
 
-/* 返回登录视图 */
+/* 返回登录视图：恢复 tab 栏后交给 switchTab 统一处理（含三 tab 的 active 态与标题文案） */
 function backToLogin() {
   resetAuthView();
-  currentAuthMode = 'login';
   document.querySelector('.tabs').style.display = '';
-  document.getElementById('tabLogin').classList.add('active');
-  document.getElementById('tabReg').classList.remove('active');
-  document.getElementById('loginForm').style.display = '';
-  document.getElementById('authTitle').textContent = '👋 欢迎回来';
-  document.getElementById('authSubtitle').textContent = '使用 Qxwk 通行证登录，一处登录，通行各站';
+  switchTab('login');
 }
 
-/* 统一重置：隐藏 tabs 与所有表单（登录/注册/设密码/忘记密码） */
+/* 统一重置：隐藏 tabs 与所有表单（登录/邮箱注册/邀请码注册/设密码/忘记密码） */
 function resetAuthView() {
   document.querySelector('.tabs').style.display = 'none';
   document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('emailRegForm').style.display = 'none';
   document.getElementById('regForm').style.display = 'none';
   document.getElementById('setPassForm').style.display = 'none';
   document.getElementById('forgotForm').style.display = 'none';
@@ -247,20 +302,20 @@ async function doForgotReset(e) {
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
 }
+/* 两个注册开关：关掉即把整个 tab 连同表单一起隐藏（统一处理，不再留「注册已暂停」的提示 + 禁用按钮）。
+   隐藏只是不给死路，真正的拦截在后端（/api/register 与 /api/register/email 各自校验开关）；
+   生成邀请码开关作用于账号中心取码（见 account.js），不在登录页体现 */
 fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
-  if (cfg && cfg.inviteCodeRequired === false) {
-    var field = document.getElementById('inviteField');
-    var input = document.getElementById('regInvite');
-    field.style.display = 'none';
-    input.required = false;
+  if (!cfg) return;
+  if (cfg.inviteRegisterEnabled === false) {
+    document.getElementById('tabReg').style.display = 'none';
+    document.getElementById('regForm').style.display = 'none';
   }
-  if (cfg && cfg.inviteRegisterEnabled === false) {
-    var notice = document.getElementById('invitePausedNotice');
-    if (notice) notice.style.display = '';
-    var regBtn = document.getElementById('regBtn');
-    if (regBtn) regBtn.disabled = true;
+  if (cfg.emailRegisterEnabled === false) {
+    document.getElementById('tabEmailReg').style.display = 'none';
+    document.getElementById('emailRegForm').style.display = 'none';
   }
-}).catch(function () { /* 后端不可达时默认强制邀请码 */ });
+}).catch(function () { /* 后端不可达时按三个开关全开处理 */ });
 
 /* 初始化：本地已有有效会话则直接进账号中心，否则展示登录表单 */
 autoRedirect();

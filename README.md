@@ -5,8 +5,9 @@
 ## ✨ 功能一览
 
 - **统一账号**：注册一个通行证账号，获得昵称（可改）+ 专属颜色（60 色 Material 调色板）+ UID
-- **邀请码注册**：默认注册需邀请码（`invite_code_required` 开关），账号中心一键生成（一码制：有未使用码则返回、无则生成，消耗后才产下一个）。**生成要求邮箱已绑定且已验证**（未验证时接口回 `{code:null, need_email_verify:true}`，前端提示去验证邮箱）；**只拦新生成**——已生成的未使用码照常回显，不因邮箱状态被藏起来
-- **登录页**：登录 / 注册 / 主题切换 / 邀请码字段（按 `invite_code_required` 开关联动显隐）
+- **邀请码注册**：注册**一律需要一次性邀请码**（无「必填与否」开关），入口由 `invite_register_enabled` 控制总开关；账号中心一键生成（一码制：有未使用码则返回、无则生成，消耗后才产下一个）。**生成要求邮箱已绑定且已验证**（未验证时接口回 `{code:null, need_email_verify:true}`，前端提示去验证邮箱）；**只拦新生成**——已生成的未使用码照常回显，不因邮箱状态被藏起来
+- **邮箱注册**：填邮箱 → 发送**注册验证码**（Resend 发信）→ 输入验证码 + 昵称 + 密码即建号并自动登录；邮箱既经核销，账号直接 `email_verified=1`（注册即完成验证）。由**独立开关** `email_register_enabled` 控制，与邀请码的两个开关互不影响（关掉邀请码注册不会连带关掉邮箱注册，反之亦然）；已注册邮箱在发码时即拦下并提示去登录/找回密码
+- **登录页**：三个 tab —— **登录 / 邮箱注册 / 邀请码注册**（+ 主题切换）；两个注册 tab 由各自开关控制，**关掉即整块隐藏**（`inviteRegisterEnabled` → 邀请码注册 tab、`emailRegisterEnabled` → 邮箱注册 tab），不做「保留入口但禁用」的中间态
 - **设置密码流程**：DB 中 `password_hash` 为空的账号（管理员预建/导入），登录时引导到「🔑 设置密码」表单，设完即登录
 - **忘记密码**：登录页「忘记密码？」入口，凭**已绑定且已验证的邮箱**发送重置验证码 → 输入验证码+新密码即可重置并登录（防枚举；成功后撤销该账号**全部会话**，所有设备一并登出）
 - **登录失败限流**：同一账号 15 分钟内失败满 5 次即锁定 15 分钟（返回 429），登录成功即清零；不区分账号是否存在，避免用 429 探测账号
@@ -29,13 +30,13 @@
 
 ```
 ├── migrations/
-│   └── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps(来源白名单：display_name + match_type + match_key) / login_log / login_attempts(失败限流) / invite_codes / settings / email_codes
+│   └── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps(来源白名单：display_name + match_type + match_key) / login_log / login_attempts(失败限流) / invite_codes / settings(三个开关：生成邀请码 / 邮箱注册 / 邀请码注册) / email_codes
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 全面放行 + 静态资源回退
 │   └── lib.js              # PBKDF2 密码哈希 / 会话(多会话 + 来源站点归属) / 设备名解析 / 颜色分配 / 邀请码生成 / SHA-256 + getAvatarUrl / sendEmail(Resend) + genEmailCode
 ├── public/
 │   ├── index.html          # 根页分流（有本地会话→账号中心，否则→登录页）
-│   ├── login.html          # 登录 + 注册 + 设置密码 + 忘记密码
+│   ├── login.html          # 登录 + 邮箱注册 + 邀请码注册 + 设置密码 + 忘记密码
 │   ├── account.html        # 账号中心（资料/修改/邮箱验证/重置密码/邀请码/登录设备/已授权网站/退出）
 │   ├── setup.html          # 首次设置引导页
 │   ├── base.css            # login/account 共用的公共样式（设计变量 + reset + navbar 品牌区）；index/setup 自成一套，刻意不引（见下方设计说明）
@@ -58,17 +59,18 @@
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/api/register` | 无 | 注册：`{nickname, password, invite_code?, client?}` → `{token, userId, nickname, color, email(null), avatar(null), created_at(ISO8601)}`（需邀请码时校验并消耗；新注册无邮箱，故 `email`/`avatar` 为 `null`，字段与登录响应保持一致） |
+| POST | `/api/register` | 无 | 邀请码注册：`{nickname, password, invite_code, client?}` → `{token, userId, nickname, color, email(null), avatar(null), created_at(ISO8601)}`（**一律**校验并消耗一次性邀请码；入口开关 `invite_register_enabled` 关闭时 403。此路径无邮箱，故 `email`/`avatar` 为 `null`，字段与登录响应保持一致） |
+| POST | `/api/register/email` | 无 | 邮箱注册：`{email, code, nickname, password, client?}` → `{token, userId, nickname, color, email, avatar, created_at}`（与登录同形状）。`code` 为 `/api/email/code` 的 `purpose='signup'` 所发 6 位码；核销后建号并置 `email_verified=1`，随后自动登录。开关为 `email_register_enabled`（关闭 403）；已注册邮箱 / 昵称占用 409；码错误或过期 400 |
 | POST | `/api/login` | 无 | 登录：`{nickname, password, client?}`（`nickname` 字段填**昵称或邮箱**，昵称优先，未命中再按邮箱大小写不敏感匹配）→ 成功：`{token, userId, nickname, color, email, avatar, created_at}`。失败 401「帐号或密码不正确」，**失败次数过多 429**（见「设计说明 → 登录失败限流」）。**空哈希账号**（管理员预建）带 `new_password` 则一并设密并登录；不带则返回 `{need_set_password:true, identity}`，前端据此跳转「设置密码」表单（原 `/api/set-password` 已合并进此接口） |
 | GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, email_verified, avatar, created_at}`（前端渲染自己页面用；下游后端校验 token 请用 `POST /api/verify`，那个还返回 token 的来源站点） |
 | PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}` → `{userId, nickname, color, email, avatar, created_at}`（昵称冲突 409；邮箱不限服务商、可为空；邮箱变更后自动 `email_verified=0` 需重新验证） |
 | PUT | `/api/password` | Bearer | 修改密码：`{new_password}`（4-50 字符，无需原密码；**保留当前会话、不影响其他设备**） |
 
-**邮箱验证码**（发码 / 核销两个动作，绑定邮箱与找回密码共用）
+**邮箱验证码**（发码 / 核销两个动作，绑定邮箱、找回密码、邮箱注册共用一个发码接口）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/api/email/code` | 视 `purpose` | 发送验证码：`{email, purpose?}`。`purpose='verify'`（默认，绑定邮箱，**需登录**）：成功 `{ok:true}`，60 秒内重发 429；`purpose='reset'`（找回密码，**无需登录**）：仅向**已绑定且已验证**的邮箱发信，成功 `{ok:true, msg}`；未知/未验证邮箱 400「该邮箱未验证」，未配置 `EMAIL_API_KEY` 503。验证码 10 分钟有效、60 秒限发一次 |
+| POST | `/api/email/code` | 视 `purpose` | 发送验证码：`{email, purpose?}`。`purpose='verify'`（默认，绑定邮箱，**需登录**）：成功 `{ok:true}`，60 秒内重发 429；`purpose='reset'`（找回密码，**无需登录**）：仅向**已绑定且已验证**的邮箱发信，成功 `{ok:true, msg}`；未知/未验证邮箱 400「该邮箱未验证」；`purpose='signup'`（邮箱注册，**无需登录**）：邮箱已被占用 409，`email_register_enabled` 关闭 403，成功 `{ok:true}`。未配置 `EMAIL_API_KEY` 503。验证码 10 分钟有效、60 秒限发一次 |
 | POST | `/api/email/verify` | 视场景 | 核销验证码：`{email, code}` 或 `{email, code, new_password, new_password_confirm}`。**不带** `new_password` → 绑定邮箱（需登录，`purpose='verify'`）→ `{ok:true, email}`，邮箱被他人占用 409；**带** `new_password` → 重置密码并登录（无需登录，`purpose='reset'`）→ 撤销该账号全部旧会话（所有设备登出）后签发新会话，返回与登录一致的 `{token, …}`。码不存在/过期/已用/邮箱未验证统一 400「验证码错误或已过期」（防枚举），校验用后即焚、并发重放只成功一次 |
 
 **第三方接入（给其他网站用）**
@@ -93,7 +95,7 @@
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/api/config` | 无 | 公开配置：`{inviteCodeRequired, inviteGenerateEnabled, inviteRegisterEnabled}` |
+| GET | `/api/config` | 无 | 公开配置（三个开关）：`{inviteGenerateEnabled, inviteRegisterEnabled, emailRegisterEnabled}`（登录页据此**整块隐藏**对应的注册 tab） |
 | GET | `/api/invite-code` | Bearer | 取本人未使用邀请码（无则生成，一码制）。有未使用码 → `{paused:false, code}`；无码且邮箱未验证 → `{code:null, need_email_verify:true}`；管理员暂停生成 → `{paused:true, code:null}` |
 
 **跨站验证 token**（供原站使用）：`fetch('https://account.qxwkstudio.top/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })`（旧写法 `GET /api/me` + Bearer 仍可用，但不返回 token 的来源站点）。Worker 对任意 Origin 回显 CORS 头（全面放行，鉴权靠 token），任意站点均可直接跨域调用。
@@ -152,25 +154,28 @@ const uid = d.userId;                   // 映射到你本地用户表的稳定�
 
 **④ 处理「被注销」**：用户在账号中心可以按设备下线、也可以按站点**整站注销**（`/api/clients/revoke`）——此后你手里的 token 立刻失效。你的前端遇到业务接口 401 或 `valid:false` 时，要清掉本地 token 并回到自己的登录页，不要假设 token 永久有效。
 
-**几点注意**：注册（`POST /api/register`）同样接受 `client`；本站 CORS 全面放行，任意 Origin 均可跨域调用 `/api/login`、`/api/me`、`/api/verify`；`/api/verify` 不更新 `last_seen_at`、不写登录日志，可高频调用；token 在库里是 **SHA-256 哈希**（原明文只在登录响应里返回一次，服务端不再留存）；会话**不自动过期**，只会在用户主动下线 / 重置密码 / 整站注销时失效，另有「90 天无人使用则回收」的清理（不会因此把在用的设备踢下线）。
+**几点注意**：注册（`POST /api/register`、`POST /api/register/email`）同样接受 `client`；本站 CORS 全面放行，任意 Origin 均可跨域调用 `/api/login`、`/api/me`、`/api/verify`；`/api/verify` 不更新 `last_seen_at`、不写登录日志，可高频调用；token 在库里是 **SHA-256 哈希**（原明文只在登录响应里返回一次，服务端不再留存）；会话**不自动过期**，只会在用户主动下线 / 重置密码 / 整站注销时失效，另有「90 天无人使用则回收」的清理（不会因此把在用的设备踢下线）。
 
 ## ⚙️ 系统设置（settings 表）
 
 | key | 默认值 | 含义 |
 |---|---|---|
-| `invite_code_required` | `1` | 注册是否需要邀请码（`1` 需要 / `0` 放开注册） |
-| `invite_generate_enabled` | `1` | 允许生成邀请码（`1` 允许 / `0` 暂停） |
-| `invite_register_enabled` | `1` | 允许注册（`1` 允许 / `0` 暂停） |
+| `invite_generate_enabled` | `1` | **生成邀请码**开关：`1` 允许生成 / `0` 暂停生成（只影响账号中心能否取码，已发出去的码照常能注册） |
+| `email_register_enabled` | `1` | **邮箱注册**开关：`1` 允许注册 / `0` 暂停注册（关掉即隐藏登录页的「邮箱注册」tab） |
+| `invite_register_enabled` | `1` | **邀请码注册**开关：`1` 允许注册 / `0` 暂停注册（关掉即隐藏登录页的「邀请码注册」tab） |
 
-切换示例（放开注册）：
+三个开关各管一摊、互不影响；初始化都在 `migrations/0001_init.sql`（原先单独的 `0002_email_register.sql` 已并回建库文件，见该文件 settings 段注释）。早先的 `invite_code_required`（邀请码是否必填）已移除——邀请码注册一律需要邀请码。
+
+切换示例（暂停邮箱注册）：
 
 ```bash
-npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET value='0' WHERE key='invite_code_required';"
+npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET value='0' WHERE key='email_register_enabled';"
 ```
 
 ## 🔧 设计说明
 
 - **密码安全**：PBKDF2（10 万次迭代 + 随机盐）哈希存储，不落明文；会话为 64 位随机 token。
+- **邮箱注册与注册验证码**：注册场景下账号**还不存在**，`email_codes.user_id` 又是 `NOT NULL`（且无外键约束），故 `purpose='signup'` 的记录统一以 **`user_id = 0` 作哨兵**。哨兵是所有注册者**共用**的，因此该用途下的「一码制先删旧码」**必须按 `email` 定位**而不是按 `user_id`——否则会把别人待用的注册码一起删掉（这是本设计里唯一需要特别小心的地方，见 `worker.js` 的 `/api/email/code`）。核销方是 `POST /api/register/email`（不并入 `/api/register`：两者的凭证校验完全不同，合并会让分支层层嵌套），核销成功后置 `email_verified=1`；码用后即焚，并发重放第二次必然失败，也就不会建出两个同邮箱账号。已注册邮箱在**发码时**即返回 409 提示去登录/找回密码，与 `reset` 分支「查不到就报错」属同一量级的信息暴露，换来的是不必干等一封永远不来的邮件。
 - **登录失败限流**：按**账号**（昵称/邮箱统一转小写作为键）计数，记在 `login_attempts` 表：15 分钟窗口内失败满 5 次即锁定该账号 15 分钟，期间登录返回 429，登录成功立即删除记录。为什么不按 IP —— D1 场景下拿不到稳定可信的客户端 IP，而按账号限流正好挡住「针对某个账号的暴力破解」这一主要威胁。**记账与账号是否存在无关**（不存在的账号同样计数、同样会锁），否则「有没有 429」就成了该账号是否注册的探针，防枚举失效。锁定期内继续失败**不会**延长锁定（避免被无限续锁），代价是攻击者可以故意失败 5 次把某人临时锁 15 分钟，这是换取「无法无限撞密码」的已知取舍。走邮箱重置密码成功会一并清掉该账号的失败记录，用户不会被自己撞出的锁挡在门外。
 - **多会话模型**：同一账号可在多台设备同时登录，登录/注册/设密只**新增**一条会话，不再踢掉旧会话。`sessions` 表存 `token`（主键，**存的是 SHA-256 哈希**，明文只在登录响应里返回一次；改造前签发的老会话库里仍是明文，由 `resolveSession()` 在首次被人使用时**就地迁移**为哈希，用户不必重新登录）、`user_id`、`user_agent`（UA 原始串）、`client_id`（来源站点，见下条）、`created_at`、`last_seen_at`；设备名由后端 `describeDevice()` 统一解析（UA 顺序判定：先 Edge/Opera 再 Chrome 再 Safari；iOS 上的浏览器是 WebKit 内核、UA 里不含 `Chrome`/`Firefox`，故单独判 `CriOS`/`FxiOS`/`EdgiOS` 前缀），前端只消费结果字符串。`last_seen_at` 在鉴权时**节流滚动更新**（与上次相差 >1 小时才写库，避免每个请求都产生写入）。会话**不自动过期**，但 `createSession` 会顺带回收「**90 天无人使用**」的会话（`COALESCE(last_seen_at, created_at)` 判据，无 `last_seen_at` 的老行按创建时间算），避免 `sessions` 表只增不减；重置密码会撤销全部会话，改密码保留当前会话。下线接口以 `rowid` 为会话标识，并在 `WHERE` 中限定 `user_id`，防止越权删除他人会话。**「登录设备」卡只列在通行证本站直接登录的会话**（`client_id` 与 `client_label` 都为空），其余来源全部归「已授权网站」卡——两张卡合起来正好覆盖全部会话，不重不漏（这一点是硬约束：早先用内连接查 `apps`，白名单站点被删后遗留的会话两张卡都看不到、也就永远注销不掉）。
 - **第三方接入与来源归属**：跨站 SSO 已下线，第三方站点改为**自己调 `/api/login`（或 `/api/register`）拿 token 并自行保存**，本站不再做跳转授权。为了让用户看清「哪些网站拿着我的登录」，登录/注册接口接受可选 `client`：传站点 origin（浏览器）或应用名（安卓 App / 服务端直连无 `Origin` 头），服务端由 `resolveClient()` 分两档记来源：**命中 `apps` 白名单**（上报值能解析成 URL 就按 `match_type='origin'` 查 `match_key`，否则按 `match_type='name'` 查——`name` 类存 App 上报的原样应用名，区分大小写）→ 写 `sessions.client_id`（展示名 / origin 以库为准）；**未命中** → 写 `sessions.client_label`（自报的原始串，界面标「未登记来源」，绝不当作可信站点名，但**能注销**）；**两者都无**（本站同源页面 / 没声明来源又没 `Origin` 头）→ 两列皆空，才是「本站直连登录」。同源（通行证自己的页面）不会被误标成站点。账号中心「已授权网站」卡按这两个字段聚合展示（外加 `apps` 行已被删的 `client_id`，兜底名「已移除的站点」），`POST /api/clients/revoke` 按 `id` 撤销本账号在该来源的全部会话（= 该处需重新登录）——id 为纯数字按 `client_id` 匹配，否则按 `client_label` 匹配。下游后端校验用户带来的 token 用 `POST /api/verify`（body 传 `token` 或 `Authorization: Bearer`，无效返回 `200 {valid:false}`），它比 `/api/me` 多返回 `client`（token 的来源站点），且**不**滚动写 `last_seen_at`、不写登录日志（允许高频调用）。**`client` 只能当「来源标注」，不能当鉴权依据**：服务端调用可以随意伪造 `Origin` 头，`resolveClient` 的白名单仅确保「标出来的站点名是登记过的」，不代表调用者真的来自该站点；同理 `/api/verify` 不做调用方鉴权，任何人拿到 token 都能验证它（故它只回 `{valid, userId, client}`，不含用户资料）。
