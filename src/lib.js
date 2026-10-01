@@ -377,7 +377,9 @@ export async function sendEmail(env, to, subject, html) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Qxwk 通行证 <no-reply@account.qxwkstudio.top>',
+      // 发件地址用 verify@ 而非 no-reply@：这个域名只发验证码，收件人不该回信，
+      // 「verify」能一眼说明来信事由（no-reply 只表达"别回"）。改这里前先在 Resend 确认该地址可发件
+      from: 'Qxwk 通行证 <verify@account.qxwkstudio.top>',
       to, subject, html,
     }),
   });
