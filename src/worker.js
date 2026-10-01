@@ -4,7 +4,7 @@ import {
   json, error,
   hashPassword, verifyPassword, createSession, getUserId, assignColor,
   isValidNickname, isValidPassword, getAvatarUrl,
-  genEmailCode, sendEmail, renderResetEmail, renderBrandEmail,
+  genEmailCode, sendEmail, renderResetEmail, renderBrandEmail, isTempEmail,
   USER_COLORS, getToken, describeDevice, revokeAllSessions, resolveClient,
   loginLockRemaining, recordLoginFail, clearLoginFails, resolveSession, getSessionKey,
 } from './lib.js';
@@ -37,6 +37,96 @@ function generateInviteCode() {
 async function getSetting(DB, key, def) {
   const row = await DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
   return row ? row.value : def;
+}
+
+// ---------- 发码防刷 ----------
+
+// 验证码核销的最大尝试次数：超过即作废该码（见 consumeEmailCode）
+// 6 位码只有 100 万种组合，而码有效期 10 分钟——没有这道闸，爆破几乎不受限
+const MAX_CODE_ATTEMPTS = 5;
+
+// 发码限流档位（按 IP / 按邮箱；「同邮箱 60 秒限发」另在路由里单独判断，它要给人话原文案）
+const CODE_LIMIT_IP_10M = 5;    // 每 IP 10 分钟
+const CODE_LIMIT_IP_DAY = 20;   // 每 IP 每天
+const CODE_LIMIT_EMAIL_DAY = 10; // 每邮箱每天
+
+// 取客户端 IP（发码限流的维度）。
+// **只认 CF-Connecting-IP**：该头由 Cloudflare 边缘写入，客户端伪造不了。
+// 刻意不回退 X-Forwarded-For——那是调用方可随意设置的头部，一旦回退，攻击者改个值就能绕过限流，
+// 等于给出一条假限流。拿不到就返回空串，此时跳过 IP 维度（仅本地 wrangler dev 会如此，
+// 线上所有请求都经 CF，该头必然存在），邮箱维度照常生效。
+function clientIp(request) {
+  return (request.headers.get('CF-Connecting-IP') || '').trim();
+}
+
+// 按「维度 + 时间窗」原子累加计数，返回累加后的次数。
+// key 自带时间片（见 checkCodeRateLimit），窗口切换即换新 key，所以不需要"读出旧值再判断过期"，
+// 一次 UPSERT 就够，也就没有了读改写的竞态（并发请求各自原子 +1，不会互相覆盖）
+async function bumpRateLimit(DB, key, windowSeconds) {
+  const row = await DB.prepare(
+    `INSERT INTO rate_limit (key, count, expires_at) VALUES (?, 1, datetime('now', ?))
+     ON CONFLICT(key) DO UPDATE SET count = count + 1
+     RETURNING count`
+  ).bind(key, '+' + windowSeconds + ' seconds').first();
+  // 顺手清理过期行。只在「新窗口的第一行」触发（count === 1），避免每次发码都全表扫一遍；
+  // 表本身很小（每窗口每维度一行），不必另设定时任务
+  if (row && row.count === 1) {
+    await DB.prepare("DELETE FROM rate_limit WHERE expires_at < datetime('now')").run();
+  }
+  return row ? row.count : 1;
+}
+
+// 发码限流总闸：放行返回 null，超限返回应回给前端的 429 响应。
+// 放在业务校验（邮箱是否存在 / 开关是否打开）**之前**：这样未注册邮箱也会消耗计数并被限流，
+// 攻击者无法靠"会不会被限流"反推某个邮箱的状态
+async function checkCodeRateLimit(DB, request, email) {
+  const ip = clientIp(request);
+  const day = new Date().toISOString().slice(0, 10); // UTC 日期，与库里 datetime('now') 同口径
+  const slot = Math.floor(Date.now() / 600000);      // 10 分钟一片
+  if (ip) {
+    if (await bumpRateLimit(DB, `code:ip:${ip}:10m:${slot}`, 600) > CODE_LIMIT_IP_10M) {
+      return error('发送太频繁，请稍后再试', 429);
+    }
+    if (await bumpRateLimit(DB, `code:ip:${ip}:1d:${day}`, 86400) > CODE_LIMIT_IP_DAY) {
+      return error('今日发送次数过多，请明天再试', 429);
+    }
+  }
+  if (await bumpRateLimit(DB, `code:email:${email.toLowerCase()}:1d:${day}`, 86400) > CODE_LIMIT_EMAIL_DAY) {
+    return error('该邮箱今日发送次数过多，请明天再试', 429);
+  }
+  return null;
+}
+
+// 核销验证码：一码制下「同邮箱 + 同用途」至多一条活跃码，故按这两个条件定位即可。
+// 返回 { ok: true } 或 { err: <响应> }。
+// 关键在失败计数：码不匹配时给它 +1，累计到 MAX_CODE_ATTEMPTS 直接作废该码（用户须重新发码），
+// 否则 10 分钟窗口内可以对同一条码无限次试错
+async function consumeEmailCode(DB, email, purpose, code) {
+  const active = await DB.prepare(
+    `SELECT id, code FROM email_codes
+      WHERE email = ? AND purpose = ? AND used_at IS NULL AND expires_at > datetime('now')`
+  ).bind(email, purpose).first();
+  if (!active || active.code !== code) {
+    if (active) {
+      const bumped = await DB.prepare(
+        'UPDATE email_codes SET attempts = attempts + 1 WHERE id = ? RETURNING attempts'
+      ).bind(active.id).first();
+      if (bumped && bumped.attempts >= MAX_CODE_ATTEMPTS) {
+        // 作废：置 used_at 让它立刻失效（attempts 保留，仅作排查用），并明确告诉用户去重新获取——
+        // 能走到这里说明对方已经知道"该邮箱有活跃码"（前面已过邮箱归属校验），不算新增信息泄露
+        await DB.prepare("UPDATE email_codes SET used_at = datetime('now') WHERE id = ?").bind(active.id).run();
+        return { err: error('验证码错误次数过多，请重新获取验证码', 400) };
+      }
+    }
+    // 码不存在 / 过期 / 已用 / 不匹配：统一报错，防枚举
+    return { err: error('验证码错误或已过期', 400) };
+  }
+  // 原子标记已用（用后即焚）：并发重放时第二个请求到此会失败
+  const done = await DB.prepare(
+    "UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL"
+  ).bind(active.id).run();
+  if (done.meta.changes === 0) return { err: error('验证码错误或已过期', 400) };
+  return { ok: true };
 }
 
 // ---------- API 处理 ----------
@@ -99,6 +189,9 @@ async function handleApi(request, env) {
     if ((await getSetting(DB, 'email_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
     if (!code) return error('请输入验证码');
+    // 临时邮箱拦一道（发码处已拦，这里再拦是因为码有 10 分钟有效期，且名单随时可能新增域名）；
+    // 三处一律拦，名单见 lib.js 的 TEMP_EMAIL_DOMAINS
+    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400);
     if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符');
     if (!isValidPassword(password)) return error('密码需为 4-50 个字符');
 
@@ -108,18 +201,10 @@ async function handleApi(request, env) {
     const emailTaken = await DB.prepare('SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
     if (emailTaken) return error('该邮箱已注册，请直接登录或找回密码', 409);
 
-    // 核销注册验证码（user_id 哨兵 0，见 /api/email/code 的 signup 分支）；
-    // 不区分「不存在 / 过期 / 已用」，统一报错，避免把哪一步失败透给前端
-    const row = await DB.prepare(
-      `SELECT id FROM email_codes WHERE user_id = 0 AND email = ? AND purpose = 'signup'
-       AND code = ? AND used_at IS NULL AND expires_at > datetime('now')`
-    ).bind(email, code).first();
-    if (!row) return error('验证码错误或已过期', 400);
-    // 原子标记已用（用后即焚）：并发重放时第二个请求到此会失败，也就不会建出两个同邮箱账号
-    const done = await DB.prepare(
-      `UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL`
-    ).bind(row.id).run();
-    if (done.meta.changes === 0) return error('验证码错误或已过期', 400);
+    // 核销注册验证码（purpose='signup'，见 /api/email/code 的 signup 分支）。
+    // 码不存在 / 过期 / 已用 / 不匹配统一报错，避免把哪一步失败透给前端；同一条码连错 5 次即作废
+    const checked = await consumeEmailCode(DB, email, 'signup', code);
+    if (checked.err) return checked.err;
 
     const passwordHash = await hashPassword(password);
     const color = await assignColor(DB);
@@ -336,6 +421,14 @@ async function handleApi(request, env) {
       : (body.purpose === 'signup' ? 'signup' : 'verify');
     const email = String(body.email || '').trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
+    // 临时邮箱一律不发码（名单见 lib.js 的 TEMP_EMAIL_DOMAINS）。放在限流之前：
+    // 被拉黑的邮箱本来就不该发信，也就不必占掉本人的配额
+    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400);
+
+    // 发码限流（每 IP 10 分钟 / 每 IP 每天 / 每邮箱每天）。
+    // 位置在业务校验**之前**：未注册邮箱也照常计数并被限流，攻击者无法靠"会不会被限流"反推邮箱状态
+    const limited = await checkCodeRateLimit(DB, request, email);
+    if (limited) return limited;
 
     // 验证码归属用户：verify 取当前登录用户；reset 按邮箱反查并要求已绑定且已验证；
     // signup 是注册场景——此刻账号还不存在，user_id 用 0 作哨兵（email_codes.user_id 无外键约束，
@@ -419,6 +512,9 @@ async function handleApi(request, env) {
     const reset = !!newPassword; // 是否走「重置密码」分支，由是否提供新密码决定（重置必然要改密码）
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
     if (!code) return error('请输入验证码');
+    // 临时邮箱拦在核销之前（三处一律拦，见 lib.js 的 TEMP_EMAIL_DOMAINS）。
+    // 对 reset 也拦：若放行，之前拿临时邮箱注册的账号能靠它一次次重置密码，等于把邮箱这道门留着
+    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400);
 
     // 定位归属用户：绑定走当前登录态；重置按邮箱反查（未知/未验证邮箱统一模糊报错，防枚举）
     let userId;
@@ -435,18 +531,10 @@ async function handleApi(request, env) {
     }
     const purpose = reset ? 'reset' : 'verify';
 
-    // 不区分「码不存在/过期/已用」，统一报错，防枚举
-    const row = await DB.prepare(
-      `SELECT id FROM email_codes WHERE user_id = ? AND email = ? AND purpose = ?
-       AND code = ? AND used_at IS NULL AND expires_at > datetime('now')`
-    ).bind(userId, email, code, purpose).first();
-    if (!row) return error('验证码错误或已过期', 400);
-
-    // 原子标记已用（用后即焚），并发重放时第二个请求到此会失败
-    const done = await DB.prepare(
-      `UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL`
-    ).bind(row.id).run();
-    if (done.meta.changes === 0) return error('验证码错误或已过期', 400);
+    // 核销（含失败计数，见 consumeEmailCode）：码不存在/过期/已用/不匹配统一报错，防枚举；
+    // 同一条码连错 5 次即作废，必须重新获取
+    const checked = await consumeEmailCode(DB, email, purpose, code);
+    if (checked.err) return checked.err;
 
     if (!reset) {
       // 绑定邮箱并标记已验证（唯一索引冲突说明该邮箱已被他人绑定）

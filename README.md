@@ -11,6 +11,7 @@
 - **设置密码流程**：DB 中 `password_hash` 为空的账号（管理员预建/导入），登录时引导到「🔑 设置密码」表单，设完即登录
 - **忘记密码**：登录页「忘记密码？」入口，凭**已绑定且已验证的邮箱**发送重置验证码 → 输入验证码+新密码即可重置并登录（防枚举；成功后撤销该账号**全部会话**，所有设备一并登出）
 - **登录失败限流**：同一账号 15 分钟内失败满 5 次即锁定 15 分钟（返回 429），登录成功即清零；不区分账号是否存在，避免用 429 探测账号
+- **发码防刷**：邮箱验证码（注册 / 绑定邮箱 / 找回密码）三重防护——**临时邮箱黑名单**（三处一律拦，名单见 `src/lib.js` 的 `TEMP_EMAIL_DOMAINS`）、**发码限流**（每 IP 10 分钟 5 次、每 IP 每天 20 次、每邮箱每天 10 次，叠加原有的同邮箱 60 秒限发）、**核销失败计数**（同一条码连错 5 次即作废，防 6 位码爆破）；详见「设计说明 → 发码防刷」
 - **多会话登录**：同一账号可在多台设备/浏览器同时登录，各持独立 token 互不影响。账号中心两张卡把全部会话**划成互补的两份、不重不漏**：「💻 登录设备」只列**在通行证本站直接登录**的设备（系统 · 浏览器、最后活跃、登录时间），可**逐个下线**或**一键下线该卡内其他所有设备**（只作用于本站直连设备，第三方来源不受影响；当前设备不提供下线按钮，避免把自己踢出）；「🌐 已授权网站」收**除本站直连外的其他一切来源**的会话——已登记站点（`apps` 白名单，显示站点名 / origin）、未登记来源（名字是调用方自报的原始串，标「未登记来源」）、以及后来被移出白名单的站点（标「已移除的站点」），每行都可**整来源注销**（= 撤销本账号在该来源的全部会话）
 - **账号中心**：个人资料卡 + 修改资料（昵称 / 专属颜色 / 邮箱）+ 邮箱验证 + 重置密码（折叠，无需原密码）+ 邀请码卡 + 登录设备 + 已授权网站 + 退出登录
 - **已授权网站 + 第三方接入**：其他站点（及应用）调登录/注册时带 `client` 声明来源，服务端拿 `apps` 白名单校验——**命中记 `sessions.client_id`**（权威站点名），**未命中记 `sessions.client_label`**（自报的原始串，标「未登记来源」），两者都是通行证之外来源的证据，故都归「🌐 已授权网站」卡（按来源聚合展示，每行一个「注销登录」= **整来源注销**，撤销本账号在该来源的全部会话）；只有两列皆空才是本站直连登录、留在「登录设备」卡。其他网站的后端用 `POST /api/verify` 校验用户带来的 token（只回 `{valid, userId, client}`，不含昵称/邮箱等资料）
@@ -30,10 +31,10 @@
 
 ```
 ├── migrations/
-│   └── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps(来源白名单：display_name + match_type + match_key) / login_log / login_attempts(失败限流) / invite_codes / settings(三个开关：生成邀请码 / 邮箱注册 / 邀请码注册) / email_codes
+│   └── 0001_init.sql         # 全包含建库文件：users(含email) / sessions(多会话+来源站点) / apps(来源白名单：display_name + match_type + match_key) / login_log / login_attempts(失败限流) / invite_codes / settings(三个开关：生成邀请码 / 邮箱注册 / 邀请码注册) / email_codes(含 attempts 核销失败计数) / rate_limit(发码限流计数)
 ├── src/
 │   ├── worker.js           # /api/* 路由 + CORS 全面放行 + 静态资源回退
-│   └── lib.js              # PBKDF2 密码哈希 / 会话(多会话 + 来源站点归属) / 设备名解析 / 颜色分配 / 邀请码生成 / SHA-256 + getAvatarUrl / sendEmail(Resend) + genEmailCode
+│   └── lib.js              # PBKDF2 密码哈希 / 会话(多会话 + 来源站点归属) / 设备名解析 / 颜色分配 / 邀请码生成 / SHA-256 + getAvatarUrl / sendEmail(Resend) + genEmailCode + isTempEmail(临时邮箱黑名单)
 ├── public/
 │   ├── index.html          # 根页分流（有本地会话→账号中心，否则→登录页）
 │   ├── login.html          # 登录 + 邮箱注册 + 邀请码注册 + 设置密码 + 忘记密码
@@ -60,7 +61,7 @@
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | POST | `/api/register` | 无 | 邀请码注册：`{nickname, password, invite_code, client?}` → `{token, userId, nickname, color, email(null), avatar(null), created_at(ISO8601)}`（**一律**校验并消耗一次性邀请码；入口开关 `invite_register_enabled` 关闭时 403。此路径无邮箱，故 `email`/`avatar` 为 `null`，字段与登录响应保持一致） |
-| POST | `/api/register/email` | 无 | 邮箱注册：`{email, code, nickname, password, client?}` → `{token, userId, nickname, color, email, avatar, created_at}`（与登录同形状）。`code` 为 `/api/email/code` 的 `purpose='signup'` 所发 6 位码；核销后建号并置 `email_verified=1`，随后自动登录。开关为 `email_register_enabled`（关闭 403）；已注册邮箱 / 昵称占用 409；码错误或过期 400 |
+| POST | `/api/register/email` | 无 | 邮箱注册：`{email, code, nickname, password, client?}` → `{token, userId, nickname, color, email, avatar, created_at}`（与登录同形状）。`code` 为 `/api/email/code` 的 `purpose='signup'` 所发 6 位码；核销后建号并置 `email_verified=1`，随后自动登录。开关为 `email_register_enabled`（关闭 403）；已注册邮箱 / 昵称占用 409；码错误或过期 400、连错 5 次即作废；临时邮箱 400 |
 | POST | `/api/login` | 无 | 登录：`{nickname, password, client?}`（`nickname` 字段填**昵称或邮箱**，昵称优先，未命中再按邮箱大小写不敏感匹配）→ 成功：`{token, userId, nickname, color, email, avatar, created_at}`。失败 401「帐号或密码不正确」，**失败次数过多 429**（见「设计说明 → 登录失败限流」）。**空哈希账号**（管理员预建）带 `new_password` 则一并设密并登录；不带则返回 `{need_set_password:true, identity}`，前端据此跳转「设置密码」表单（原 `/api/set-password` 已合并进此接口） |
 | GET | `/api/me` | Bearer | 当前用户：`{userId, nickname, color, email, email_verified, avatar, created_at}`（前端渲染自己页面用；下游后端校验 token 请用 `POST /api/verify`，那个还返回 token 的来源站点） |
 | PUT | `/api/profile` | Bearer | 改资料：`{nickname?, color?, email?}` → `{userId, nickname, color, email, avatar, created_at}`（昵称冲突 409；邮箱不限服务商、可为空；邮箱变更后自动 `email_verified=0` 需重新验证） |
@@ -70,8 +71,8 @@
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/api/email/code` | 视 `purpose` | 发送验证码：`{email, purpose?}`。`purpose='verify'`（默认，绑定邮箱，**需登录**）：成功 `{ok:true}`，60 秒内重发 429；`purpose='reset'`（找回密码，**无需登录**）：仅向**已绑定且已验证**的邮箱发信，成功 `{ok:true, msg}`；未知/未验证邮箱 400「该邮箱未验证」；`purpose='signup'`（邮箱注册，**无需登录**）：邮箱已被占用 409，`email_register_enabled` 关闭 403，成功 `{ok:true}`。未配置 `EMAIL_API_KEY` 503。验证码 10 分钟有效、60 秒限发一次 |
-| POST | `/api/email/verify` | 视场景 | 核销验证码：`{email, code}` 或 `{email, code, new_password, new_password_confirm}`。**不带** `new_password` → 绑定邮箱（需登录，`purpose='verify'`）→ `{ok:true, email}`，邮箱被他人占用 409；**带** `new_password` → 重置密码并登录（无需登录，`purpose='reset'`）→ 撤销该账号全部旧会话（所有设备登出）后签发新会话，返回与登录一致的 `{token, …}`。码不存在/过期/已用/邮箱未验证统一 400「验证码错误或已过期」（防枚举），校验用后即焚、并发重放只成功一次 |
+| POST | `/api/email/code` | 视 `purpose` | 发送验证码：`{email, purpose?}`。`purpose='verify'`（默认，绑定邮箱，**需登录**）：成功 `{ok:true}`，60 秒内重发 429；`purpose='reset'`（找回密码，**无需登录**）：仅向**已绑定且已验证**的邮箱发信，成功 `{ok:true, msg}`；未知/未验证邮箱 400「该邮箱未验证」；`purpose='signup'`（邮箱注册，**无需登录**）：邮箱已被占用 409，`email_register_enabled` 关闭 403，成功 `{ok:true}`。未配置 `EMAIL_API_KEY` 503。验证码 10 分钟有效、60 秒限发一次。**临时邮箱**（名单见 `src/lib.js` 的 `TEMP_EMAIL_DOMAINS`）一律 400「不支持临时邮箱」；**发码限流**超限 429：每 IP 10 分钟 5 次 / 每 IP 每天 20 次 / 每邮箱每天 10 次 |
+| POST | `/api/email/verify` | 视场景 | 核销验证码：`{email, code}` 或 `{email, code, new_password, new_password_confirm}`。**不带** `new_password` → 绑定邮箱（需登录，`purpose='verify'`）→ `{ok:true, email}`，邮箱被他人占用 409；**带** `new_password` → 重置密码并登录（无需登录，`purpose='reset'`）→ 撤销该账号全部旧会话（所有设备登出）后签发新会话，返回与登录一致的 `{token, …}`。码不存在/过期/已用/邮箱未验证统一 400「验证码错误或已过期」（防枚举），校验用后即焚、并发重放只成功一次；**同一条码连错 5 次即作废**（400「验证码错误次数过多，请重新获取验证码」，须重新发码）。临时邮箱 400 |
 
 **第三方接入（给其他网站用）**
 
@@ -184,8 +185,9 @@ npx wrangler d1 execute qxwk-account --remote --command "UPDATE settings SET val
 - **邀请码**：8 位去易混淆字符（I/O/0/1），原子 `UPDATE ... WHERE used_at IS NULL` 消耗（用后即焚）；一码制——用户始终只保留一个未使用码，旧码消耗后才生成下一个，防止生成过多。**生成需邮箱已绑定且已验证**（邀请码是「带人进来」的凭证，未验证邮箱的账号不该发码），但**只在生成那一步校验**：已有未使用码照常回显，不受邮箱状态影响（否则已分享出去的码会突然从界面消失，用户以为丢了）。
 - **空哈希账号**：支持管理员预建/导入无密码账号（`password_hash` 为空），用户首次登录时 `POST /api/login` 返回 `need_set_password`，前端引导其带 `new_password` 再次调用同一接口完成设密并登录——不再需要单独的设密码接口。
 - **头像 URL 集中计算**：WeAvatar 链接基于 `sha256(lowercase(trim(email)))`。**只有 `@qq.com` 邮箱会生成头像 URL**（其它邮箱 `avatar=null`），且仅在邮箱绑定并验证后生效。哈希用 Web Crypto 原生 `crypto.subtle.digest('SHA-256', ...)`（原先手写的 ~150 行纯 JS MD5 已删除；WeAvatar 文档明确 HASH 支持 SHA256 / MD5 并**推荐 SHA256**，未在 WeAvatar 注册过头像时会回退 Gravatar / QQ 头像，故 QQ 头像不受哈希算法变更影响）。因 `crypto.subtle` 只能异步，`getAvatarUrl(email)` 为 **async 函数，调用处必须 `await`**。为保持前后端口径一致、避免多个项目重复维护哈希实现，后端（`src/lib.js`）是唯一实现处；所有对外用户资料接口统一返回 `avatar` 字段（完整 URL 或 `null`），City Footprint 等下游项目和本项目前端都只消费 URL，不再自行计算哈希。更换头像服务（例如切到 QQ 官方头像或自托管 Gravatar）只需修改 `getAvatarUrl()` 一处，零下游改动。
-- **邮箱验证**：6 位验证码由 `crypto.getRandomValues` 生成；`email_codes` 表一码制（发新码即删该用户旧码），验证时用「用后即焚」原子 UPDATE（同时并发重放只成功一次）；码不存在/过期/已用统一报「验证码错误或已过期」防枚举；60 秒限发防刷；验证通过才写 `users.email_verified=1`。修改邮箱（含清空）会重置 `email_verified=0`，需重新验证。发信走 Resend，密钥经 `EMAIL_API_KEY` 注入（本地 `.dev.vars` / 线上 Secret），不落仓库。
+- **邮箱验证**：6 位验证码由 `crypto.getRandomValues` 生成；`email_codes` 表一码制（发新码即删该用户旧码），验证时用「用后即焚」原子 UPDATE（同时并发重放只成功一次）；码不存在/过期/已用统一报「验证码错误或已过期」防枚举；60 秒限发防刷（限流档位与黑名单见下条「发码防刷」）；验证通过才写 `users.email_verified=1`。修改邮箱（含清空）会重置 `email_verified=0`，需重新验证。发信走 Resend，密钥经 `EMAIL_API_KEY` 注入（本地 `.dev.vars` / 线上 Secret），不落仓库。
 - **忘记密码**：以**已验证邮箱**为找回身份，复用 `/api/email/code`（`purpose='reset'`）与 `/api/email/verify`（带 `new_password` 分支）两个接口，共用 `email_codes` 表与品牌邮件模板（`renderResetEmail`）。发码时对未注册/未验证邮箱一律返回相同的模糊文案，**且 60 秒重复请求也静默返回成功而非 429**——否则攻击者可用「429 vs 400」区分邮箱是否已注册，防枚举就失效了；核销时未知邮箱统一报「验证码错误或已过期」。重置通过 `hashPassword` 更新哈希、显式调用 `revokeAllSessions()` 撤销该账号全部会话，再签发新会话——被盗会话一并登出（多会话下 `createSession` 不再自动踢人，必须显式撤销）。**未绑定或未验证邮箱的账号无法通过此途径找回**。
+- **发码防刷（限流 / 失败计数 / 临时邮箱黑名单）**：`/api/email/code` 的三个用途里有两个无需登录，是整套流程最容易被刷的一环——不设防时换个邮箱就能绕开「同邮箱 60 秒限发」，把当天的发信额度打满，真实用户从此收不到验证码。故加三层：① **临时邮箱黑名单**（`src/lib.js` 的 `TEMP_EMAIL_DOMAINS` + `isTempEmail()`）——注册、绑定邮箱、找回密码**三处一律拦**；按**根域**匹配（`mailinator.com` 的用户名子域也是同一个服务，只做全等会整片漏掉），所以名单里只写根域；拦 reset 是有意的，否则早先用临时邮箱注册的账号能靠它反复重置密码；名单只求覆盖常见服务，不追求穷尽（自己注册个域名即可绕过，这一点防不住）。② **发码限流**（`rate_limit` 表 + `bumpRateLimit()`）——每 IP 10 分钟 5 次 / 每 IP 每天 20 次 / 每邮箱每天 10 次，与原有的同邮箱 60 秒限发叠加。key 采用「**维度 + 时间片**」（如 `code:ip:1.2.3.4:10m:29700000`），换窗口即换 key，因此计数只需一条 `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count` 原子 +1，不必「读旧值—判过期—写回」（那样有读改写竞态）；旧窗口的行由 `expires_at` 在新窗口首行时顺带清掉。IP 维度**只认 `CF-Connecting-IP`**（边缘写入、客户端伪造不了），刻意不回退 `X-Forwarded-For`——那个头调用方可以随便设，回退等于给出一条「改个值就绕过」的假限流；取不到就跳过 IP 维度（仅本地 dev 如此，线上必存在）。限流放在业务校验（邮箱是否存在 / 开关是否打开）**之前**：未注册邮箱同样计数，攻击者无法靠「会不会被限流」反推邮箱状态。③ **核销失败计数**（`email_codes.attempts` + `consumeEmailCode()`）——码不匹配就 +1，累计 5 次即置 `used_at` 作废该码、要求重新发码；6 位码只有 100 万种组合而有效期 10 分钟，没有这道闸等于可以无限试错。超限时回的是明确文案而非统一的「验证码错误或已过期」：能走到这一步说明对方已通过前面的邮箱归属校验、知道该邮箱正有活跃码，不算新增信息泄露。
 - **响应式边距（前端一致性）**：账号中心、登录、设置密码等所有含页面骨架的页面统一断点和间距规范，新增页面务必遵守：`.navbar-inner 0 24px / main 36 24 60 / card 24px / footer 14 24px`（桌面）→ `@media (max-width: 640px) navbar-inner 0 12 / main 20 12 32 / card 14px / footer 12 12px`（手机），避免不同页面松紧不一。
 - **公共样式抽取（base.css）**：从前 `login.html` / `account.html` 各自内联了同一份「设计变量 + reset + navbar 品牌区」，现在抽到 `public/base.css` 由两页 `<link>` 复用。抽取遵循一条硬标准——**只搬「在被引页面中逐字符一致、且搬走后不改变任何页面层叠顺序」的规则**：即它原本就位于各引用页的公共前缀（前面没有任何该页专有规则），否则搬进一个公共文件（被各页在同一个位置引入）会改变选择器生效的先后，属于重构而不是搬移。因此这份文件目前就是 104 行、且已到上限：login 与 account 从第 15 个样式块（`#authView`，两页仅块首注释文案不同）起就分叉，之后所有看似相同的规则（`.auth-right`、`@media` 断点块等）都有细微差异，凑一致反而要改动页面样式，超出「抽公共」的范围。**`index.html` / `setup.html` 刻意不引**：前者是极简跳转页、后者是独立欢迎面板，各自 `:root` / `body` / 字体自成一套，与这 104 行零重叠——引进来只会多出十几条本页从不使用的规则，还会真的继承 `body` 的 `line-height` / `flex-direction`（`setup` 的 body 是多子元素 flex 布局且自己没声明 `line-height`，会被改排布）。故「复用」只限真有公共块的页面，不做形式上的统一。
 
@@ -236,13 +238,6 @@ npx wrangler d1 migrations apply qxwk-account --remote
 
 ```bash
 npx wrangler d1 execute qxwk-account --remote --command "INSERT OR IGNORE INTO apps (display_name, match_type, match_key, homepage) VALUES ('City Footprint', 'origin', 'https://travel.qxwkstudio.top', 'https://travel.qxwkstudio.top')"
-```
-
-> 已有线上旧库：新增的**表**（如 `login_attempts`）重跑一次建库文件即可补建（`npx wrangler d1 execute qxwk-account --remote --file migrations/0001_init.sql`）；新增的**列**（`sessions.user_agent` / `last_seen_at` / `client_id` / `client_label`）`CREATE TABLE IF NOT EXISTS` 补不了，必须逐条 `ALTER TABLE sessions ADD COLUMN ...` 手工加。**注意 `wrangler d1 migrations apply` 也补不了列**：线上库不是用它建的（`migrations list --remote` 里 `0001_init.sql` 仍显示「待应用」），且该文件通篇 `IF NOT EXISTS`，跑一遍只是把它记成已应用、并不会给已存在的表加列。漏加 `client_label` 会让注册/登录直接 500。改**结构**（`apps` 由 `name`/`origin` 拆成 `display_name`/`match_type`/`match_key`）同样补不了，得重建表并沿用旧 id——`sessions.client_id` / `login_log.client_id` 存的就是 `apps.id`，换 id 会让历史记录全变成「已移除的站点」。
-
-```bash
-# 已有线上旧库按需逐条执行（已存在的列会报 duplicate column name，忽略即可）
-npx wrangler d1 execute qxwk-account --remote --command "ALTER TABLE sessions ADD COLUMN client_label TEXT"
 ```
 
 ### 4. 配置邮件服务（Resend）与 KEY

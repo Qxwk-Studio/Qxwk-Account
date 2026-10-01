@@ -293,6 +293,78 @@ export function genEmailCode() {
   return String(n % 1000000).padStart(6, '0');
 }
 
+// 常见一次性/临时邮箱域名黑名单。用途：注册（signup）、绑定邮箱（verify）、找回密码（reset）三处一律拦下——
+// 临时邮箱能收验证码，等于把「邮箱」这道可追溯的门降级成一次性的，尤其是它还是生成邀请码的前置条件。
+//
+// 匹配规则是「等于该域，或以其为后缀」，因此写在这里的一律是**根域**：像 mailinator.com 的用户名子域
+// （xxx.mailinator.com）也是同一个临时邮箱服务，只做全等匹配会整片漏掉。副作用是同一根域下的
+// 正常子域也会被拦，但这份名单里的根域没有提供正经邮箱服务的（gmail.com / qq.com 这类不在名单内）。
+//
+// 只按域名判定、不看邮箱是否存在：判定必须便宜且确定，再加上「想绕过就自己注册个域名」这件事本身
+// 无法防住，故这份名单只求覆盖常见服务，不追求穷尽。新增服务直接在下面追加一行即可。
+export const TEMP_EMAIL_DOMAINS = [
+  // 国际常见
+  'mailinator.com', '10minutemail.com', '10minutemail.net', 'guerrillamail.com', 'guerrillamail.net',
+  'guerrillamail.org', 'guerrillamail.de', 'sharklasers.com', 'grr.la', 'spam4.me',
+  'temp-mail.org', 'temp-mail.io', 'tempmail.com', 'tempmail.net', 'tempmail.dev', 'tempmailaddress.com',
+  'throwawaymail.com', 'yopmail.com', 'yopmail.fr', 'yopmail.net', 'maildrop.cc',
+  'trashmail.com', 'trashmail.net', 'getnada.com', 'nada.email', 'dispostable.com',
+  'fakeinbox.com', 'mailnesia.com', 'mintemail.com', 'mytemp.email', 'mohmal.com',
+  'moakt.com', 'tempr.email', 'discard.email', 'discardmail.com', 'mailcatch.com',
+  'spambog.com', 'spamgourmet.com', 'mailforspam.com', 'throwam.com', 'emailondeck.com',
+  'burnermail.io', 'inboxkitten.com', '33mail.com', 'instantemailaddress.com',
+  // Guerrilla Mail 同服务别名（同一家发的不同域名，漏一个等于漏全部）
+  'guerrillamail.info', 'guerrillamail.biz', 'guerrillamailblock.com', 'pokemail.net', 'spam.la',
+  // 10 Minute Mail 系（同一服务的多后缀）
+  '10minemail.com', '10minutemail.org', '10minutemail.de', '10minutemail.co.za', '10minutetempemail.com',
+  // temp-mail 系 / TempMail.Plus
+  'fexpost.com', 'fexbox.org', 'tempemail.cc', 'tempmail.cc', 'tempemail.net', 'tempemailaddress.com',
+  // mail.tm 系（同一家两个域名）
+  'mail.tm', 'mail.gw',
+  // DropMail.me 系
+  'dropmail.me', '10mail.org', 'emlhub.com', 'emlpro.com', 'emltmp.com',
+  // 1secmail 系
+  '1secmail.com', '1secmail.net', '1secmail.org', '1secmail.xyz', '1secmail.ru', 'wwjmp.com',
+  'xojxe.com', 'yoggm.com',
+  // Mailinator 备用域
+  'mailinator2.com', 'sogetthis.com',
+  // 随机地址生成器类（generator.email / emailfake 等一域名一站的站点）
+  'emailfake.com', 'generator.email', 'email-temp.com', 'tempmailo.com', 'tempmail.email', 'tempmail.lol',
+  'tmailor.com', 'mail7.io', 'tempsky.com', 'tempinbox.com', '20minutemail.com',
+  // 收件箱托管 / 一次性邮箱
+  'mailsac.com', 'inboxes.com', 'emailnator.com', 'luxusmail.org', 'disposablemail.com', 'mailnull.com',
+  'getairmail.com', 'airmail.cc', 'harakirimail.com', 'inboxbear.com', 'boun.cr',
+  // TrashMail 系（trashmail / trash-mail / mytrashmail 三组同源）
+  'trashmail.at', 'trashmail.me', 'trashmail.io', 'trashmail.ws', 'trashmail.org', 'trashmail.de',
+  'trash-mail.com', 'trash-mail.at', 'trash-mail.net', 'mytrashmail.com', 'mytrashmailer.com', 'mailmetrash.com',
+  // 德系 wegwerf*（"一次性"的德语），同一服务多后缀
+  'wegwerfmail.de', 'wegwerfmail.net', 'wegwerfmail.org', 'wegwerfemail.de',
+  // 其他常见一次性邮箱
+  'jetable.org', 'jetable.com', 'jetable.net', 'mail-temporaire.fr',
+  'spamavert.com', 'spambox.us', 'spamfree24.org', 'spamhereplease.com', 'throwaway.email',
+  'iwatermail.com',   // 小型独立临时邮箱（站点挂在 GitHub Pages，MX 指向 mail.iwatermail.com）
+  // 中文/国内常见
+  'linshiyouxiang.net', 'linshi-mail.com', 'snapmail.cc', 'tempmail.plus', 'mailto.plus',
+  '24mail.chacuo.net', 'chacuo.net', 'mail.cx', '1mail.name', 'smailpro.com',
+  'xinshi.pw',
+  // 线上实际遇到的滥用域名——逐条收集，与上面「按服务商整理」的通用名单刻意分开：
+  // 这些是本站线上收到的实际注册来源，未必都是公开的临时邮箱服务（有的就是垃圾站点域名）。
+  // 维持这份分界的意义：以后要复核「某条到底该不该在名单里」时，只查下面这一段即可。
+  'ruutukf.com', 'globalsmv.com', 'agenticengineer.pro', 'asdk04.icu', 'filorosso.shop',
+  'hnyjktv.com', 'jqrvlhc.com', 'kwkub.cyou', 'lunvira.pro', 'ofaldgw.com',
+  'onlylicensedcasinos.com', 'paytrust.cc', 'prgtc.vip', 'talmirexo.org', 'xenveroes.pro',
+  'xiakdi.com', 'zkqjdkd.com',
+];
+
+// 是否临时邮箱：取最后一个 @ 之后的部分做域名比对（local part 本身含 @ 时也不会取错）
+export function isTempEmail(email) {
+  const s = String(email || '').toLowerCase();
+  const at = s.lastIndexOf('@');
+  if (at < 0) return false;
+  const domain = s.slice(at + 1);
+  return TEMP_EMAIL_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
+}
+
 // 发送邮件：调用 Resend API。env.EMAIL_API_KEY 需在 wrangler.toml 或 secret 中配置
 // from 域名需在 Resend 后台完成 SPF/DKIM 验证后才能作为发件地址
 export async function sendEmail(env, to, subject, html) {

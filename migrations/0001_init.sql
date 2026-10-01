@@ -85,9 +85,10 @@ CREATE TABLE IF NOT EXISTS email_codes (
   user_id INTEGER NOT NULL,             -- 归属用户（reset 时按邮箱定位到该用户）
   email TEXT NOT NULL,                  -- 目标邮箱
   code TEXT NOT NULL,                   -- 6 位数字验证码
-  purpose TEXT NOT NULL,                -- 'verify' | 'reset'
+  purpose TEXT NOT NULL,                -- 'verify'（绑定邮箱）| 'reset'（找回密码）| 'signup'（邮箱注册）
   expires_at TEXT NOT NULL,             -- 过期时间，如 datetime('now', '+10 minutes')
   used_at TEXT,                         -- 使用时间，NULL = 未使用（用后即焚）
+  attempts INTEGER NOT NULL DEFAULT 0,  -- 核销失败次数；累计到上限即作废该码（防 6 位码爆破，见 worker.js consumeEmailCode）
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_email_codes_user ON email_codes(user_id, purpose);
@@ -119,3 +120,14 @@ CREATE TABLE IF NOT EXISTS settings (
 INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_generate_enabled', '1');   -- 生成邀请码开关（'1' 允许生成，'0' 暂停生成；只影响账号中心能否取码，不影响已有码注册）
 INSERT OR IGNORE INTO settings (key, value) VALUES ('email_register_enabled', '1');    -- 邮箱注册开关（'1' 允许注册，'0' 暂停注册；关掉即隐藏登录页的「邮箱注册」tab）
 INSERT OR IGNORE INTO settings (key, value) VALUES ('invite_register_enabled', '1');   -- 邀请码注册开关（'1' 允许注册，'0' 暂停注册；关掉即隐藏登录页的「邀请码注册」tab）
+
+-- 发码限流计数表（只为邮箱验证码防刷服务，见 worker.js 的 bumpRateLimit / checkCodeRateLimit）
+-- key 自带维度与时间片，形如 code:ip:1.2.3.4:10m:29700000 / code:email:a@b.com:1d:2026-10-01，
+-- 因此换窗口就是换 key，计数只需一条 UPSERT 原子 +1，不必"读旧值—判过期—写回"（那样有竞态）。
+-- 旧窗口的行不再被写入，靠 expires_at 在下次新窗口时顺带清掉，故必须有下方索引。
+CREATE TABLE IF NOT EXISTS rate_limit (
+  key TEXT PRIMARY KEY,                 -- 维度 + 时间片（见上行说明）
+  count INTEGER NOT NULL,               -- 该窗口内已累计次数
+  expires_at TEXT NOT NULL              -- 窗口结束时间，过期即可删
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_expires ON rate_limit(expires_at);
