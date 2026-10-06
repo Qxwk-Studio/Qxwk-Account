@@ -3,6 +3,11 @@ main = "src/worker.js"
 compatibility_date = "2026-08-05"
 compatibility_flags = ["nodejs_compat"]
 
+# 关闭默认域（*.workers.dev），只保留自定义域 account.qxwkstudio.top
+# 自定义域在控制台配置（Worker → 设置 → 触发器 → 自定义域，见 README「部署指南 §6」），
+# 与 workers_dev 相互独立、不受影响；这里仅停用 workers.dev 子域，避免出现第二个可访问入口。
+workers_dev = false
+
 # 静态资源目录（public/）
 #
 # binding = "ASSETS"：把资源集合暴露给 Worker（env.ASSETS.fetch）。**不能省**——
@@ -22,3 +27,10 @@ run_worker_first = true
 binding = "DB"
 database_name = "qxwk-account"
 database_id = "3308443b-b6b3-4011-a387-485d786208f7"
+
+# Worker 缓存（控制台「Cache / 缓存」）
+# enabled = true：为 fetch handler 返回的响应启用边缘缓存，缓存行为由响应自带的 Cache-Control 决定
+#   （worker.js 已设：静态资源 public, max-age=300；HTML no-cache；/api/* no-store，即接口不进缓存）。
+#   命中时直接由边缘返回、不再执行 Worker。
+[cache]
+enabled = true
