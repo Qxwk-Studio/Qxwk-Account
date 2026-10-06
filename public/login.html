@@ -198,8 +198,6 @@
     --shadow-sm:0 1px 3px rgba(0,0,0,0.4); --shadow-md:0 4px 16px rgba(0,0,0,0.5); --shadow-lg:0 12px 40px rgba(0,0,0,0.6);
   }
   :root[data-theme="dark"] .footer { background:#111827; }
-  :root[data-theme="dark"] .back-link { background:rgba(59,130,246,0.16); border-color:rgba(96,165,250,0.35); }
-  :root[data-theme="dark"] .back-link:hover { background:rgba(59,130,246,0.30); border-color:rgba(96,165,250,0.60); }
 
   /* ===== 黑夜模式：页面元素覆盖 ===== */
   :root[data-theme="dark"] .auth-right { background: var(--surface); }
@@ -211,7 +209,7 @@
 <header class="navbar">
   <div class="navbar-inner">
     <!-- 品牌链接指向通行证主页（根路径，index.html 按登录状态分流到账号中心/登录页），
-         不是 Qxwk 工作室官网；去官网走右侧「返回主页」的 back-link，两个链接职责不重叠。
+         不是 Qxwk 工作室官网（官网入口已从顶栏移除，仅剩品牌链接一个跳转）。
          用 "/" 而不是 "index.html"：直接命中根路径，少一次 /index.html → / 的 307 跳转 -->
     <a href="/" class="navbar-brand">
       <img class="brand-logo" src="/favicon.webp" alt="Qxwk 通行证">
@@ -223,10 +221,6 @@
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
       <button class="lang-toggle" id="langToggle" type="button" aria-label="切换语言" title="切换语言" data-i18n-aria-label="common.switch_lang" data-i18n-title="common.switch_lang">EN</button>
-      <a href="https://home.qxwkstudio.top/" class="back-link">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
-        <span data-i18n="common.back_home">返回主页</span>
-      </a>
     </div>
   </div>
 </header>

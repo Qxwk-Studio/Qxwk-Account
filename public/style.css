@@ -97,29 +97,6 @@
   .brand-text { line-height: 1.25; }
   .brand-text b { display: block; font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
   .brand-text span { font-size: 11px; color: var(--text-tertiary); }
-  .back-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 18px;
-    background: rgba(37, 99, 235, 0.15);
-    color: var(--text-primary);
-    text-decoration: none;
-    border-radius: 40px;
-    font-size: 0.88rem;
-    font-weight: 500;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    border: 1px solid rgba(147, 197, 253, 0.35);
-    transition: all var(--transition);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .back-link:hover {
-    background: rgba(37, 99, 235, 0.3);
-    border-color: rgba(147, 197, 253, 0.6);
-    transform: scale(1.02);
-  }
 
   /* ========= 语言切换按钮（与 .theme-toggle 同尺寸同视觉风格，纯文字） =========
      #themeToggle 的样式在各页内联 <style> 里，本按钮放公共样式便于两页共用；

@@ -25,7 +25,6 @@
       'brand.slogan': '一处登录，通行各站',
       'common.switch_theme': '切换主题',
       'common.switch_lang': '切换语言',
-      'common.back_home': '返回主页',
       'common.iframe_welcome': '欢迎',
       'footer.copy': '2026 青翔未阔工作室 · Qxwk 通行证',
 
@@ -230,7 +229,6 @@
       'brand.slogan': 'One login, all sites',
       'common.switch_theme': 'Switch theme',
       'common.switch_lang': 'Switch language',
-      'common.back_home': 'Back to home',
       'common.iframe_welcome': 'Welcome',
       'footer.copy': '2026 青翔未阔工作室 · Qxwk 通行证',
 
