@@ -120,3 +120,34 @@
     border-color: rgba(147, 197, 253, 0.6);
     transform: scale(1.02);
   }
+
+  /* ========= 语言切换按钮（与 .theme-toggle 同尺寸同视觉风格，纯文字） =========
+     #themeToggle 的样式在各页内联 <style> 里，本按钮放公共样式便于两页共用；
+     颜色沿用 --text-primary / --primary / --primary-subtle，深浅主题自动一致。 */
+  .lang-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+    position: relative;
+    z-index: 5;
+    touch-action: manipulation;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .lang-toggle:hover { background: var(--primary-subtle); color: var(--primary); }
+
+  /* 英文访客首屏防闪：head 同步脚本先给 <html> 加该属性隐藏 body，
+     DOMContentLoaded 里 applyI18n() 后（或 1s 兜底定时器里）移除。
+     中文访客不带该属性 → 不隐藏、不闪（HTML 原文即中文）。 */
+  :root[data-i18n-pending] body { visibility: hidden; }

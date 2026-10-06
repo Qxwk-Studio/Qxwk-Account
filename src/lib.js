@@ -20,8 +20,15 @@ export function json(data, status = 200) {
   });
 }
 
-export function error(message, status = 400) {
-  return json({ error: message }, status);
+// 遗留契约：`error` 中文字段与 HTTP status 是既有对外契约（安卓 App / Qxwk-CityFootprint 等消费方在用），
+// 语义一律不许改——中文串逐字不变、status 保持不变。
+// 新增的 `code` 是给前端查语言包的稳定标识（同一文案共用同一 code），新写的 error() 调用**必须带 code**；
+// `params` 仅用于需要插值的文案（如 login_locked 的 { minutes }）。二者仅在非 null 时增量加入返回体。
+export function error(message, status = 400, code = null, params = null) {
+  const body = { error: message };
+  if (code) body.code = code;
+  if (params) body.params = params;
+  return json(body, status);
 }
 
 function toHex(buf) {

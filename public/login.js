@@ -1,6 +1,8 @@
 /* 登录/注册切换 */
 // 表单区当前模式（login 登录 / email 邮箱注册 / reg 邀请码注册），决定标题与副标题文案
 var currentAuthMode = 'login';
+// 当前视图（login / email / reg / setpass / forgot）：语言切换时据此重跑对应渲染
+var currentView = 'login';
 
 /* 事件绑定：CSP 去掉 script-src 'unsafe-inline' 后内联 onclick / onsubmit 会被拦下，
    故 HTML 侧改为 data-action 标记，这里用一个 document 级委托统一分发（表单直接绑 submit） */
@@ -30,6 +32,7 @@ document.getElementById('forgotForm').addEventListener('submit', doForgotReset);
 
 function switchTab(mode) {
   currentAuthMode = mode;
+  currentView = mode;
   document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
   document.getElementById('tabEmailReg').classList.toggle('active', mode === 'email');
   document.getElementById('tabReg').classList.toggle('active', mode === 'reg');
@@ -37,13 +40,22 @@ function switchTab(mode) {
   document.getElementById('emailRegForm').style.display = mode === 'email' ? '' : 'none';
   document.getElementById('regForm').style.display = mode === 'reg' ? '' : 'none';
   // 标题随模式切换（需求2）：三种模式各自展示对应欢迎词与副标题
+  renderAuthHeader();
+}
+
+/* 标题/副标题（#authTitle / #authSubtitle）由 JS 控制：HTML 侧未挂 data-i18n，
+   故语言切换时必须重跑本函数，否则标题停在旧语言 */
+function renderAuthHeader() {
   var TITLES = {
-    login: ['👋 欢迎回来', '使用 Qxwk 通行证登录，一处登录，通行各站'],
-    email: ['📮 邮箱注册', '用邮箱验证码注册一个通行证账号，注册后邮箱即为已验证'],
-    reg: ['🎟️ 邀请码注册', '凭一次性邀请码注册一个通行证账号'],
+    login: ['login.welcome_title', 'login.welcome_subtitle'],
+    email: ['login.email_reg_title', 'login.email_reg_subtitle'],
+    reg: ['login.reg_title', 'login.reg_subtitle'],
+    setpass: ['login.set_password_title', 'login.set_password_subtitle'],
+    forgot: ['login.forgot_title', 'login.forgot_subtitle'],
   };
-  document.getElementById('authTitle').textContent = TITLES[mode][0];
-  document.getElementById('authSubtitle').textContent = TITLES[mode][1];
+  var keys = TITLES[currentView] || TITLES.login;
+  document.getElementById('authTitle').textContent = t(keys[0]);
+  document.getElementById('authSubtitle').textContent = t(keys[1]);
 }
 
 /* 登录/注册/设密/重置成功后的统一结尾：存会话并进入账号中心 */
@@ -68,7 +80,7 @@ async function doLogin(e) {
   var btn = document.getElementById('loginBtn');
   msg.className = 'msg error';
   btn.disabled = true;
-  msg.textContent = '登录中…';
+  msg.textContent = t('login.msg_logging_in');
   try {
     var data = await api('/login', {
       method: 'POST',
@@ -83,7 +95,7 @@ async function doLogin(e) {
       return false;
     }
     msg.className = 'msg ok';
-    msg.textContent = '登录成功，正在跳转…';
+    msg.textContent = t('login.msg_login_ok');
     applySession(data);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
@@ -95,11 +107,11 @@ async function doRegister(e) {
   var btn = document.getElementById('regBtn');
   msg.className = 'msg error';
   if (document.getElementById('regPass').value !== document.getElementById('regPass2').value) {
-    msg.textContent = '两次输入的密码不一致';
+    msg.textContent = t('common.err_password_mismatch');
     return false;
   }
   btn.disabled = true;
-  msg.textContent = '注册中…';
+  msg.textContent = t('login.msg_registering');
   try {
     var data = await api('/register', {
       method: 'POST',
@@ -110,7 +122,7 @@ async function doRegister(e) {
       }),
     });
     msg.className = 'msg ok';
-    msg.textContent = '注册成功，正在进入…';
+    msg.textContent = t('login.msg_register_ok');
     applySession(data);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
@@ -125,13 +137,13 @@ async function sendSignupCode() {
   var email = document.getElementById('emailRegEmail').value.trim();
   msg.className = 'msg error';
   msg.textContent = '';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = t('common.err_email_invalid'); return; }
   btn.disabled = true;
-  msg.textContent = '发送中…';
+  msg.textContent = t('common.msg_sending');
   try {
     await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'signup' }) });
     msg.className = 'msg ok';
-    msg.textContent = '验证码已发送，10 分钟内有效，请查收';
+    msg.textContent = t('common.msg_code_sent');
     document.getElementById('emailRegCodeRow').style.display = '';
     forgotCountdown(btn); // 复用找回密码的 60 秒倒计时（末态文案「重新发送验证码」）
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
@@ -145,14 +157,14 @@ async function doEmailRegister(e) {
   msg.className = 'msg error';
   var email = document.getElementById('emailRegEmail').value.trim();
   var code = document.getElementById('emailRegCode').value.trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return false; }
-  if (!code) { msg.textContent = '请输入验证码'; return false; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = t('common.err_email_invalid'); return false; }
+  if (!code) { msg.textContent = t('common.err_code_required'); return false; }
   if (document.getElementById('emailRegPass').value !== document.getElementById('emailRegPass2').value) {
-    msg.textContent = '两次输入的密码不一致';
+    msg.textContent = t('common.err_password_mismatch');
     return false;
   }
   btn.disabled = true;
-  msg.textContent = '注册中…';
+  msg.textContent = t('login.msg_registering');
   try {
     var data = await api('/register/email', {
       method: 'POST',
@@ -164,7 +176,7 @@ async function doEmailRegister(e) {
       }),
     });
     msg.className = 'msg ok';
-    msg.textContent = '注册成功，正在进入…';
+    msg.textContent = t('login.msg_register_ok');
     applySession(data);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
@@ -172,13 +184,13 @@ async function doEmailRegister(e) {
 
 /* 切换到"设置密码"视图（账号密码哈希为空时）：隐藏 tabs + 各注册/登录表单，显示设密码表单 */
 function showSetPassForm(nick) {
+  currentView = 'setpass';
   resetAuthView();
   document.getElementById('setPassForm').style.display = '';
   document.getElementById('setPassNick').value = nick || '';
   document.getElementById('setPassNew').value = '';
   document.getElementById('setPassNew2').value = '';
-  document.getElementById('authTitle').textContent = '🔑 设置密码';
-  document.getElementById('authSubtitle').textContent = '该账号尚未设置密码，请先设置密码后登录';
+  renderAuthHeader();
   var btn = document.getElementById('loginBtn'); if (btn) btn.disabled = false;
   var msg = document.getElementById('setPassMsg');
   msg.className = 'msg'; msg.textContent = '';
@@ -193,9 +205,9 @@ async function doSetPassword(e) {
   msg.className = 'msg error';
   var p1 = document.getElementById('setPassNew').value;
   var p2 = document.getElementById('setPassNew2').value;
-  if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; return false; }
+  if (p1 !== p2) { msg.textContent = t('common.err_password_mismatch'); return false; }
   btn.disabled = true;
-  msg.textContent = '设置中…';
+  msg.textContent = t('login.msg_setting');
   try {
     var data = await api('/login', {
       method: 'POST',
@@ -205,7 +217,7 @@ async function doSetPassword(e) {
       }),
     });
     msg.className = 'msg ok';
-    msg.textContent = '密码设置成功，正在进入…';
+    msg.textContent = t('login.msg_set_ok');
     applySession(data);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
@@ -215,10 +227,10 @@ async function doSetPassword(e) {
 
 /* 进入「忘记密码」视图：隐藏 tabs + 其他表单，显示忘记密码表单 */
 function showForgot() {
+  currentView = 'forgot';
   resetAuthView();
   document.getElementById('forgotForm').style.display = '';
-  document.getElementById('authTitle').textContent = '🔑 忘记密码';
-  document.getElementById('authSubtitle').textContent = '通过你已绑定并验证的邮箱重置密码';
+  renderAuthHeader();
   document.getElementById('forgotEmail').focus();
 }
 
@@ -246,32 +258,40 @@ async function sendForgotCode() {
   var email = document.getElementById('forgotEmail').value.trim();
   msg.className = 'msg error';
   msg.textContent = '';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = t('common.err_email_invalid'); return; }
   btn.disabled = true;
-  msg.textContent = '发送中…';
+  msg.textContent = t('common.msg_sending');
   try {
     // purpose:'reset' = 找回密码场景（无需登录，服务端按邮箱发重置码）
-    var data = await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'reset' }) });
+    await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'reset' }) });
     msg.className = 'msg ok';
-    msg.textContent = (data && data.msg) || '发送成功，请查收';
+    // 忽略后端返回的 msg 中文，固定用语言包文案
+    msg.textContent = t('login.msg_send_ok');
     document.getElementById('forgotCodeRow').style.display = '';
     forgotCountdown(btn);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
 }
 
-/* 发码按钮 60 秒倒计时 */
+/* 发码按钮 60 秒倒计时；记录状态以便语言切换时重绘按钮文案 */
+var countdowns = [];
+function renderCountdowns() {
+  countdowns.forEach(function (cd) {
+    cd.btn.textContent = cd.done ? t('login.btn_resend_code') : t('login.countdown', { s: cd.left });
+  });
+}
 function forgotCountdown(btn) {
-  var left = 60;
-  btn.textContent = left + 's 后重发';
+  countdowns = countdowns.filter(function (c) { return c.btn !== btn; });
+  var cd = { btn: btn, left: 60, done: false };
+  countdowns.push(cd);
+  renderCountdowns();
   var timer = setInterval(function () {
-    left--;
-    if (left <= 0) {
+    cd.left--;
+    if (cd.left <= 0) {
       clearInterval(timer);
       btn.disabled = false;
-      btn.textContent = '重新发送验证码';
-    } else {
-      btn.textContent = left + 's 后重发';
+      cd.done = true;
     }
+    renderCountdowns();
   }, 1000);
 }
 
@@ -285,11 +305,11 @@ async function doForgotReset(e) {
   var code = document.getElementById('forgotCode').value.trim();
   var p1 = document.getElementById('forgotNew').value;
   var p2 = document.getElementById('forgotNew2').value;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = '请先填写正确的邮箱地址'; return; }
-  if (!code) { msg.textContent = '请输入验证码'; return; }
-  if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = t('common.err_email_invalid'); return; }
+  if (!code) { msg.textContent = t('common.err_code_required'); return; }
+  if (p1 !== p2) { msg.textContent = t('common.err_password_mismatch'); return; }
   btn.disabled = true;
-  msg.textContent = '重置中…';
+  msg.textContent = t('login.msg_resetting');
   try {
     // 带 new_password → 服务端按「重置密码」处理：核销重置码、改密、撤销全部旧会话并签发新会话
     var data = await api('/email/verify', {
@@ -297,7 +317,7 @@ async function doForgotReset(e) {
       body: JSON.stringify({ email, code, new_password: p1, new_password_confirm: p2 }),
     });
     msg.className = 'msg ok';
-    msg.textContent = '密码已重置，正在登录…';
+    msg.textContent = t('login.msg_reset_ok');
     applySession(data);
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
@@ -318,4 +338,17 @@ fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg)
 }).catch(function () { /* 后端不可达时按三个开关全开处理 */ });
 
 /* 初始化：本地已有有效会话则直接进账号中心，否则展示登录表单 */
+// #authTitle / #authSubtitle 由 JS 渲染（HTML 未挂 data-i18n），首屏即按当前语言取值
+renderAuthHeader();
+
+/* 语言切换：重跑当前视图的标题/副标题，并重绘正在跑的倒计时按钮文案 */
+onChange(function () {
+  if (currentView === 'setpass' || currentView === 'forgot') {
+    renderAuthHeader();   // 设密码 / 忘记密码视图：只重绘标题，不重跑 show（避免清空已输入的密码）
+  } else {
+    switchTab(currentView);
+  }
+  renderCountdowns();
+});
+
 autoRedirect();

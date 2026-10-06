@@ -85,14 +85,14 @@ async function checkCodeRateLimit(DB, request, email) {
   const slot = Math.floor(Date.now() / 600000);      // 10 分钟一片
   if (ip) {
     if (await bumpRateLimit(DB, `code:ip:${ip}:10m:${slot}`, 600) > CODE_LIMIT_IP_10M) {
-      return error('发送太频繁，请稍后再试', 429);
+      return error('发送太频繁，请稍后再试', 429, 'code_too_frequent');
     }
     if (await bumpRateLimit(DB, `code:ip:${ip}:1d:${day}`, 86400) > CODE_LIMIT_IP_DAY) {
-      return error('今日发送次数过多，请明天再试', 429);
+      return error('今日发送次数过多，请明天再试', 429, 'code_ip_daily_limit');
     }
   }
   if (await bumpRateLimit(DB, `code:email:${email.toLowerCase()}:1d:${day}`, 86400) > CODE_LIMIT_EMAIL_DAY) {
-    return error('该邮箱今日发送次数过多，请明天再试', 429);
+    return error('该邮箱今日发送次数过多，请明天再试', 429, 'code_email_daily_limit');
   }
   return null;
 }
@@ -115,17 +115,17 @@ async function consumeEmailCode(DB, email, purpose, code) {
         // 作废：置 used_at 让它立刻失效（attempts 保留，仅作排查用），并明确告诉用户去重新获取——
         // 能走到这里说明对方已经知道"该邮箱有活跃码"（前面已过邮箱归属校验），不算新增信息泄露
         await DB.prepare("UPDATE email_codes SET used_at = datetime('now') WHERE id = ?").bind(active.id).run();
-        return { err: error('验证码错误次数过多，请重新获取验证码', 400) };
+        return { err: error('验证码错误次数过多，请重新获取验证码', 400, 'code_too_many_attempts') };
       }
     }
     // 码不存在 / 过期 / 已用 / 不匹配：统一报错，防枚举
-    return { err: error('验证码错误或已过期', 400) };
+    return { err: error('验证码错误或已过期', 400, 'invalid_code') };
   }
   // 原子标记已用（用后即焚）：并发重放时第二个请求到此会失败
   const done = await DB.prepare(
     "UPDATE email_codes SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL"
   ).bind(active.id).run();
-  if (done.meta.changes === 0) return { err: error('验证码错误或已过期', 400) };
+  if (done.meta.changes === 0) return { err: error('验证码错误或已过期', 400, 'invalid_code') };
   return { ok: true };
 }
 
@@ -144,20 +144,20 @@ async function handleApi(request, env) {
     const password = String(body.password || '');
     const inviteCode = String(body.invite_code || '').trim();
 
-    if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符');
-    if (!isValidPassword(password)) return error('密码需为 4-50 个字符');
-    if ((await getSetting(DB, 'invite_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403);
+    if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符', 400, 'invalid_nickname');
+    if (!isValidPassword(password)) return error('密码需为 4-50 个字符', 400, 'invalid_password');
+    if ((await getSetting(DB, 'invite_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403, 'register_paused');
 
     const existing = await DB.prepare('SELECT id FROM users WHERE nickname = ?').bind(nickname).first();
-    if (existing) return error('昵称已被占用，换一个吧', 409);
+    if (existing) return error('昵称已被占用，换一个吧', 409, 'nickname_taken');
 
     // 原子消耗一次性邀请码（用后即焚，防止并发重复使用）
-    if (!inviteCode) return error('请填写邀请码');
+    if (!inviteCode) return error('请填写邀请码', 400, 'invite_code_required');
     const consume = await DB.prepare(
       `UPDATE invite_codes SET used_at = datetime('now'), used_by = NULL
        WHERE code = ? AND used_at IS NULL`
     ).bind(inviteCode).run();
-    if (consume.meta.changes === 0) return error('邀请码无效或已被使用', 403);
+    if (consume.meta.changes === 0) return error('邀请码无效或已被使用', 403, 'invalid_invite_code');
 
     const passwordHash = await hashPassword(password);
     const color = await assignColor(DB);
@@ -186,20 +186,20 @@ async function handleApi(request, env) {
     const email = String(body.email || '').trim();
     const code = String(body.code || '').trim();
 
-    if ((await getSetting(DB, 'email_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
-    if (!code) return error('请输入验证码');
+    if ((await getSetting(DB, 'email_register_enabled', '1')) !== '1') return error('注册已暂停，暂不接受新注册', 403, 'register_paused');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址', 400, 'invalid_email');
+    if (!code) return error('请输入验证码', 400, 'code_required');
     // 临时邮箱拦一道（发码处已拦，这里再拦是因为码有 10 分钟有效期，且名单随时可能新增域名）；
     // 三处一律拦，名单见 lib.js 的 TEMP_EMAIL_DOMAINS
-    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400);
-    if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符');
-    if (!isValidPassword(password)) return error('密码需为 4-50 个字符');
+    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400, 'temp_email_not_allowed');
+    if (!isValidNickname(nickname)) return error('昵称需为 1-20 个字符', 400, 'invalid_nickname');
+    if (!isValidPassword(password)) return error('密码需为 4-50 个字符', 400, 'invalid_password');
 
     const nickTaken = await DB.prepare('SELECT 1 FROM users WHERE nickname = ?').bind(nickname).first();
-    if (nickTaken) return error('昵称已被占用，换一个吧', 409);
+    if (nickTaken) return error('昵称已被占用，换一个吧', 409, 'nickname_taken');
     // 早于验证码核销再查一次邮箱占用：发码时已拦过，但码有 10 分钟有效期，期间该邮箱可能已被注册
     const emailTaken = await DB.prepare('SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
-    if (emailTaken) return error('该邮箱已注册，请直接登录或找回密码', 409);
+    if (emailTaken) return error('该邮箱已注册，请直接登录或找回密码', 409, 'email_taken');
 
     // 核销注册验证码（purpose='signup'，见 /api/email/code 的 signup 分支）。
     // 码不存在 / 过期 / 已用 / 不匹配统一报错，避免把哪一步失败透给前端；同一条码连错 5 次即作废
@@ -235,7 +235,7 @@ async function handleApi(request, env) {
   // 已有未使用码仍照常回显，那个码可能已经分享出去了，藏起来只会让用户以为码丢了（验证邮箱后自然恢复生成能力）
   if (method === 'GET' && path === '/api/invite-code') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     if ((await getSetting(DB, 'invite_generate_enabled', '1')) !== '1') {
       return json({ paused: true, code: null });
     }
@@ -259,7 +259,7 @@ async function handleApi(request, env) {
           code = generateInviteCode(); // 撞码（PRIMARY KEY 冲突）时换一个重试
         }
       }
-      if (!inserted) return error('邀请码生成失败，请重试', 500);
+      if (!inserted) return error('邀请码生成失败，请重试', 500, 'invite_generate_failed');
       row = { code };
     }
     return json({ paused: false, code: row.code });
@@ -272,14 +272,14 @@ async function handleApi(request, env) {
     const password = String(body.password || '');
     // 仅「空哈希账号」（管理员预建/导入）用得到；已设密码的账号会忽略它，改密走 /api/password、重置走 /api/email/verify
     const newPassword = String(body.new_password || '');
-    if (!account) return error('请填写昵称或邮箱');
+    if (!account) return error('请填写昵称或邮箱', 400, 'account_required');
 
     // 失败限流：锁定期内直接 429（见 lib.js 顶部说明）。
     // 这里只回报剩余时间、不区分账号是否存在，配合「失败一律计数」避免账号枚举
     const accountKey = account.toLowerCase();
     const lockSec = await loginLockRemaining(DB, accountKey);
     if (lockSec > 0) {
-      return error('登录失败次数过多，请 ' + Math.ceil(lockSec / 60) + ' 分钟后再试', 429);
+      return error('登录失败次数过多，请 ' + Math.ceil(lockSec / 60) + ' 分钟后再试', 429, 'login_locked', { minutes: Math.ceil(lockSec / 60) });
     }
 
     // 昵称优先：先按昵称精确匹配；未命中再按邮箱（忽略大小写）匹配
@@ -287,21 +287,21 @@ async function handleApi(request, env) {
       || await DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(account).first();
     if (!user) {
       await recordLoginFail(DB, accountKey);
-      return error('帐号或密码不正确', 401);
+      return error('帐号或密码不正确', 401, 'invalid_credentials');
     }
 
     if (!user.password_hash) {
       // 空哈希账号：没带 new_password 就返回引导标记（不在此处泄露密码是否正确），带了就设密后直接登录
       if (!newPassword) return json({ need_set_password: true, identity: user.nickname });
-      if (!isValidPassword(newPassword)) return error('密码需为 4-50 个字符');
+      if (!isValidPassword(newPassword)) return error('密码需为 4-50 个字符', 400, 'invalid_password');
       const passwordHash = await hashPassword(newPassword);
       await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, user.id).run();
     } else {
-      if (!password) return error('请填写密码');
+      if (!password) return error('请填写密码', 400, 'password_required');
       const ok = await verifyPassword(password, user.password_hash);
       if (!ok) {
         await recordLoginFail(DB, accountKey);
-        return error('帐号或密码不正确', 401);
+        return error('帐号或密码不正确', 401, 'invalid_credentials');
       }
     }
 
@@ -320,9 +320,9 @@ async function handleApi(request, env) {
   // GET /api/me（登录：验证 token 有效性，供各站跨域调用；含 email 及 avatar 头像链接）
   if (method === 'GET' && path === '/api/me') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const user = await DB.prepare('SELECT id, nickname, color, email, email_verified, created_at FROM users WHERE id = ?').bind(userId).first();
-    if (!user) return error('用户不存在', 401);
+    if (!user) return error('用户不存在', 401, 'user_not_found');
     return json({ userId: user.id, nickname: user.nickname, color: user.color, email: user.email, email_verified: !!user.email_verified, avatar: await getAvatarUrl(user.email), created_at: user.created_at });
   }
 
@@ -358,11 +358,11 @@ async function handleApi(request, env) {
   // PUT /api/profile（登录：修改个人资料。可改昵称/颜色/邮箱）
   if (method === 'PUT' && path === '/api/profile') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
 
     const body = await request.json().catch(() => ({}));
     const user = await DB.prepare('SELECT id, nickname, color, email, created_at FROM users WHERE id = ?').bind(userId).first();
-    if (!user) return error('用户不存在', 401);
+    if (!user) return error('用户不存在', 401, 'user_not_found');
 
     let nickname = user.nickname;
     let color = user.color;
@@ -371,17 +371,17 @@ async function handleApi(request, env) {
     // 昵称：1-20 字符，且与其他用户不冲突（自己原昵称跳过唯一性校验）
     if (Object.prototype.hasOwnProperty.call(body, 'nickname')) {
       const raw = String(body.nickname || '').trim();
-      if (!isValidNickname(raw)) return error('昵称需为 1-20 个字符');
+      if (!isValidNickname(raw)) return error('昵称需为 1-20 个字符', 400, 'invalid_nickname');
       if (raw !== user.nickname) {
         const clash = await DB.prepare('SELECT 1 FROM users WHERE nickname = ? AND id != ?').bind(raw, userId).first();
-        if (clash) return error('昵称已被占用，换一个吧', 409);
+        if (clash) return error('昵称已被占用，换一个吧', 409, 'nickname_taken');
         nickname = raw;
       }
     }
     // 颜色：必须在 60 色池内
     if (Object.prototype.hasOwnProperty.call(body, 'color')) {
       if (typeof body.color !== 'string' || !USER_COLORS.includes(body.color)) {
-        return error('颜色无效，请从预置色板中选择');
+        return error('颜色无效，请从预置色板中选择', 400, 'invalid_color');
       }
       color = body.color;
     }
@@ -391,7 +391,7 @@ async function handleApi(request, env) {
       if (raw === '') {
         email = null;
       } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
-        return error('请输入正确的邮箱地址');
+        return error('请输入正确的邮箱地址', 400, 'invalid_email');
       } else {
         email = raw;
       }
@@ -415,15 +415,15 @@ async function handleApi(request, env) {
   // purpose = 'reset'（找回密码）：无需登录，且错误文案必须模糊（见下方 60 秒限发的处理）
   // purpose = 'signup'（邮箱注册）：无需登录，校验邮箱未被占用后发码，核销方为 POST /api/register/email
   if (method === 'POST' && path === '/api/email/code') {
-    if (!env.EMAIL_API_KEY) return error('邮件服务未配置，请联系管理员', 503);
+    if (!env.EMAIL_API_KEY) return error('邮件服务未配置，请联系管理员', 503, 'email_service_unavailable');
     const body = await request.json().catch(() => ({}));
     const purpose = body.purpose === 'reset' ? 'reset'
       : (body.purpose === 'signup' ? 'signup' : 'verify');
     const email = String(body.email || '').trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址', 400, 'invalid_email');
     // 临时邮箱一律不发码（名单见 lib.js 的 TEMP_EMAIL_DOMAINS）。放在限流之前：
     // 被拉黑的邮箱本来就不该发信，也就不必占掉本人的配额
-    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400);
+    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400, 'temp_email_not_allowed');
 
     // 发码限流（每 IP 10 分钟 / 每 IP 每天 / 每邮箱每天）。
     // 位置在业务校验**之前**：未注册邮箱也照常计数并被限流，攻击者无法靠"会不会被限流"反推邮箱状态
@@ -436,22 +436,22 @@ async function handleApi(request, env) {
     let userId;
     if (purpose === 'verify') {
       userId = await getUserId(DB, request);
-      if (!userId) return error('未登录', 401);
+      if (!userId) return error('未登录', 401, 'unauthorized');
     } else if (purpose === 'signup') {
       // 邮箱注册开关独立于邀请码的两个开关（见 migrations/0001_init.sql 的 settings 段）
       if ((await getSetting(DB, 'email_register_enabled', '1')) !== '1') {
-        return error('注册已暂停，暂不接受新注册', 403);
+        return error('注册已暂停，暂不接受新注册', 403, 'register_paused');
       }
       // 已注册邮箱直接报错：与 reset 分支「查不到就报错」同量级的信息暴露，
       // 换来的是用户立刻知道该去登录 / 找回密码，而不是干等一封永远不来的注册邮件
       const taken = await DB.prepare('SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
-      if (taken) return error('该邮箱已注册，请直接登录或找回密码', 409);
+      if (taken) return error('该邮箱已注册，请直接登录或找回密码', 409, 'email_taken');
       userId = 0;
     } else {
       const owner = await DB.prepare('SELECT id, email_verified FROM users WHERE LOWER(email) = LOWER(?)')
         .bind(email).first();
       // 未知邮箱 / 未验证邮箱返回最少信息文案（防账户枚举）
-      if (!owner || !owner.email_verified) return error('该邮箱未验证', 400);
+      if (!owner || !owner.email_verified) return error('该邮箱未验证', 400, 'email_not_verified');
       userId = owner.id;
     }
 
@@ -463,7 +463,7 @@ async function handleApi(request, env) {
     if (recent) {
       // reset 场景必须静默成功：若返回 429，攻击者就能用「429 vs 400」区分邮箱是否已注册，防枚举失效
       if (purpose === 'reset') return json({ ok: true, msg: '验证码已发送，请查收邮箱' });
-      return error('发送太频繁，请稍后再试', 429);
+      return error('发送太频繁，请稍后再试', 429, 'code_too_frequent');
     }
 
     const code = genEmailCode();
@@ -496,7 +496,7 @@ async function handleApi(request, env) {
         }));
       }
     } catch (e) {
-      return error('邮件发送失败，请稍后重试', 502);
+      return error('邮件发送失败，请稍后重试', 502, 'email_send_failed');
     }
     return json(purpose === 'reset' ? { ok: true, msg: '验证码已发送，请查收邮箱' } : { ok: true });
   }
@@ -510,24 +510,24 @@ async function handleApi(request, env) {
     const code = String(body.code || '').trim();
     const newPassword = String(body.new_password || '');
     const reset = !!newPassword; // 是否走「重置密码」分支，由是否提供新密码决定（重置必然要改密码）
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址');
-    if (!code) return error('请输入验证码');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error('请输入正确的邮箱地址', 400, 'invalid_email');
+    if (!code) return error('请输入验证码', 400, 'code_required');
     // 临时邮箱拦在核销之前（三处一律拦，见 lib.js 的 TEMP_EMAIL_DOMAINS）。
     // 对 reset 也拦：若放行，之前拿临时邮箱注册的账号能靠它一次次重置密码，等于把邮箱这道门留着
-    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400);
+    if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400, 'temp_email_not_allowed');
 
     // 定位归属用户：绑定走当前登录态；重置按邮箱反查（未知/未验证邮箱统一模糊报错，防枚举）
     let userId;
     let owner = null;
     if (reset) {
-      if (!isValidPassword(newPassword)) return error('新密码需为 4-50 个字符');
-      if (newPassword !== String(body.new_password_confirm || '')) return error('两次输入的密码不一致');
+      if (!isValidPassword(newPassword)) return error('新密码需为 4-50 个字符', 400, 'invalid_new_password');
+      if (newPassword !== String(body.new_password_confirm || '')) return error('两次输入的密码不一致', 400, 'password_mismatch');
       owner = await DB.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').bind(email).first();
-      if (!owner || !owner.email_verified) return error('验证码错误或已过期', 400);
+      if (!owner || !owner.email_verified) return error('验证码错误或已过期', 400, 'invalid_code');
       userId = owner.id;
     } else {
       userId = await getUserId(DB, request);
-      if (!userId) return error('未登录', 401);
+      if (!userId) return error('未登录', 401, 'unauthorized');
     }
     const purpose = reset ? 'reset' : 'verify';
 
@@ -542,7 +542,7 @@ async function handleApi(request, env) {
         await DB.prepare('UPDATE users SET email = ?, email_verified = 1 WHERE id = ?')
           .bind(email, userId).run();
       } catch (e) {
-        return error('该邮箱已被其他账号绑定', 409);
+        return error('该邮箱已被其他账号绑定', 409, 'email_already_bound');
       }
       return json({ ok: true, email });
     }
@@ -570,11 +570,11 @@ async function handleApi(request, env) {
   // 与 /api/email/verify（带 new_password 的重置分支）不同：这里只改密码，保留当前会话、也不影响其他已登录设备（用户可在「登录设备」卡自行下线）
   if (method === 'PUT' && path === '/api/password') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const body = await request.json().catch(() => ({}));
     const newPassword = String(body.new_password || '');
-    if (!newPassword) return error('请填写新密码');
-    if (!isValidPassword(newPassword)) return error('新密码需为 4-50 个字符');
+    if (!newPassword) return error('请填写新密码', 400, 'new_password_required');
+    if (!isValidPassword(newPassword)) return error('新密码需为 4-50 个字符', 400, 'invalid_new_password');
     const passwordHash = await hashPassword(newPassword);
     await DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(passwordHash, userId).run();
     return json({ ok: true });
@@ -593,7 +593,7 @@ async function handleApi(request, env) {
   // 每条带来源：命中白名单的取 apps.display_name，未登记来源取 source_origin（原始串），两者都无则「直接访问」
   if (method === 'GET' && path === '/api/login-log') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const logs = await DB.prepare(
       `SELECT ll.created_at, a.display_name AS app_name, ll.source_origin
        FROM login_log ll LEFT JOIN apps a ON ll.client_id = a.id
@@ -610,7 +610,7 @@ async function handleApi(request, env) {
   // 只返回 describeDevice 的展示名，不返回 token / UA 原始串（避免把可用凭证或指纹暴露给前端）
   if (method === 'GET' && path === '/api/sessions') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     // 当前会话的键由 getSessionKey 取（老明文会话会在这一步被迁移，键才与库中一致）
     const tokenKey = await getSessionKey(DB, request);
     const rows = await DB.prepare(
@@ -634,13 +634,13 @@ async function handleApi(request, env) {
   // WHERE 里同时限定 user_id：即便猜到他人的 rowid 也删不到别人的会话；当前设备不允许在此下线（否则把自己踢出去）
   if (method === 'POST' && path === '/api/sessions/revoke') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const body = await request.json().catch(() => ({}));
     const id = Number(body.id);
-    if (!Number.isInteger(id)) return error('参数无效');
+    if (!Number.isInteger(id)) return error('参数无效', 400, 'invalid_params');
     const del = await DB.prepare('DELETE FROM sessions WHERE rowid = ? AND user_id = ? AND token != ?')
       .bind(id, userId, await getSessionKey(DB, request)).run();
-    if (del.meta.changes === 0) return error('设备不存在或为当前设备', 404);
+    if (del.meta.changes === 0) return error('设备不存在或为当前设备', 404, 'session_not_found');
     return json({ ok: true });
   }
 
@@ -651,7 +651,7 @@ async function handleApi(request, env) {
   // 会把某个网站里的登录一起悄悄踢掉，与该卡的语义对不上。
   if (method === 'POST' && path === '/api/sessions/revoke-others') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const del = await DB.prepare(
       'DELETE FROM sessions WHERE user_id = ? AND token != ? AND client_id IS NULL AND client_label IS NULL'
     ).bind(userId, await getSessionKey(DB, request)).run();
@@ -670,14 +670,14 @@ async function handleApi(request, env) {
   // 账号中心的调用是同源的（来源两列皆空），所以不会把自己踢下线。
   if (method === 'POST' && path === '/api/clients/revoke') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const body = await request.json().catch(() => ({}));
     const raw = String(body.id === undefined || body.id === null ? '' : body.id).trim();
-    if (!raw) return error('参数无效');
+    if (!raw) return error('参数无效', 400, 'invalid_params');
     const del = /^\d+$/.test(raw)
       ? await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND client_id = ?').bind(userId, Number(raw)).run()
       : await DB.prepare('DELETE FROM sessions WHERE user_id = ? AND client_id IS NULL AND client_label = ?').bind(userId, raw).run();
-    if (del.meta.changes === 0) return error('该来源没有活跃登录', 404);
+    if (del.meta.changes === 0) return error('该来源没有活跃登录', 404, 'client_not_found');
     return json({ ok: true, revoked: del.meta.changes });
   }
 
@@ -694,7 +694,7 @@ async function handleApi(request, env) {
   // origin 只在 origin 类来源有值，name 类（App）来源回 null，免得把应用名当 origin 显示出来
   if (method === 'GET' && path === '/api/clients') {
     const userId = await getUserId(DB, request);
-    if (!userId) return error('未登录', 401);
+    if (!userId) return error('未登录', 401, 'unauthorized');
     const tokenKey = await getSessionKey(DB, request);
     const rows = await DB.prepare(
       `SELECT s.rowid AS id, s.token, s.user_agent, s.created_at, s.client_id, s.client_label,
@@ -804,7 +804,7 @@ export default {
     // API 路由
     if (url.pathname.startsWith('/api/')) {
       const result = await handleApi(request, env);
-      return corsHeaders(request, result || json({ error: '接口不存在' }, 404));
+      return corsHeaders(request, result || error('接口不存在', 404, 'not_found'));
     }
 
     // 其余：静态资源（public/），并同步 CORS 头

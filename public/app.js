@@ -18,7 +18,8 @@ async function api(path, options = {}) {
       localStorage.removeItem(LS_USER);
       window.location.href = 'login.html';
     }
-    throw new Error(data.error || '请求失败 (' + res.status + ')');
+    // 后端有 code 按 err.<code> 翻译；无 code 回退后端中文 error；都没有再回退「请求失败 (status)」
+    throw new Error(t('err.' + data.code, data.params, data.error || t('err.request_failed', { status: res.status })));
   }
   return data;
 }

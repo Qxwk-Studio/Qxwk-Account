@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="strict-origin">
-<title>账号中心 - 青翔未阔工作室</title>
-<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与已授权网站。">
+<title data-i18n="account.title">账号中心 - 青翔未阔工作室</title>
+<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与已授权网站。" data-i18n-content="account.description">
 <link rel="icon" type="image/webp" href="/favicon.webp">
 <link rel="stylesheet" href="/style.css">
 <style>
@@ -473,6 +473,7 @@
 </style>
 <meta name="color-scheme" content="light dark">
 <script src="theme.js"></script>
+<script src="i18n.js"></script>
 <style>
   /* ===== 黑夜模式：主题切换按钮 ===== */
   .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
@@ -530,16 +531,17 @@
          不是 Qxwk 工作室官网；去官网走右侧「返回主页」的 back-link，两个链接职责不重叠 -->
     <a href="/" class="navbar-brand">
       <img class="brand-logo" src="/favicon.webp" alt="Qxwk 通行证">
-      <span class="brand-text"><b>Qxwk 通行证</b><span>一处登录，通行各站</span></span>
+      <span class="brand-text"><b>Qxwk 通行证</b><span data-i18n="brand.slogan">一处登录，通行各站</span></span>
     </a>
     <div style="display:flex;align-items:center;gap:10px;">
-      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题" data-i18n-aria-label="common.switch_theme" data-i18n-title="common.switch_theme">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <button class="lang-toggle" id="langToggle" type="button" aria-label="切换语言" title="切换语言" data-i18n-aria-label="common.switch_lang" data-i18n-title="common.switch_lang">EN</button>
       <a href="https://home.qxwkstudio.top/" class="back-link">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
-        返回主页
+        <span data-i18n="common.back_home">返回主页</span>
       </a>
     </div>
   </div>
@@ -548,19 +550,19 @@
 <!-- 加载中：默认显示，校验本地会话后切换（避免已登录用户先看到"未登录"界面） -->
 <div class="loading-view" id="loadingView">
   <div class="loading-spinner"></div>
-  <p>正在加载账号信息…</p>
+  <p data-i18n="account.loading">正在加载账号信息…</p>
 </div>
 
 <!-- 未登录 -->
 <div id="authView" style="display:none;">
   <div class="auth-left">
-    <iframe src="setup.html" class="setup-frame" title="欢迎" loading="lazy"></iframe>
+    <iframe src="setup.html" class="setup-frame" title="欢迎" data-i18n-title="common.iframe_welcome" loading="lazy"></iframe>
   </div>
   <div class="auth-right">
     <div class="auth-form">
-      <h2 class="auth-title">你还没有登录</h2>
-      <p class="auth-subtitle">登录后才能查看你的通行证账号信息</p>
-      <button type="button" class="btn btn-primary" data-action="goLogin">去登录 / 注册</button>
+      <h2 class="auth-title" data-i18n="account.not_logged_title">你还没有登录</h2>
+      <p class="auth-subtitle" data-i18n="account.not_logged_subtitle">登录后才能查看你的通行证账号信息</p>
+      <button type="button" class="btn btn-primary" data-action="goLogin" data-i18n="account.btn_go_login">去登录 / 注册</button>
       <div class="msg" id="authMsg"></div>
     </div>
   </div>
@@ -572,7 +574,7 @@
     <div class="page-header">
       <h1>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
-        账号中心
+        <span data-i18n="account.page_title">账号中心</span>
       </h1>
     </div>
 
@@ -598,32 +600,32 @@
 
         <!-- 修改个人资料：不可折叠 -->
         <div class="card card-profile-edit" id="profileEditCard">
-          <div class="profile-edit-title">✏️ 修改个人资料</div>
+          <div class="profile-edit-title" data-i18n="account.profile_edit_title">✏️ 修改个人资料</div>
           <div class="profile-edit-body">
             <div class="field">
-              <label>昵称</label>
-              <input id="accNickname" type="text" maxlength="20" placeholder="1-20 个字符">
-              <div class="hint">昵称是你在各站展示的名字，修改后所有接入站点都会同步</div>
+              <label data-i18n="account.label_nickname">昵称</label>
+              <input id="accNickname" type="text" maxlength="20" placeholder="1-20 个字符" data-i18n-placeholder="account.ph_nickname">
+              <div class="hint" data-i18n="account.hint_nickname">昵称是你在各站展示的名字，修改后所有接入站点都会同步</div>
             </div>
             <div class="field color-field">
-              <label>专属颜色</label>
+              <label data-i18n="account.label_color">专属颜色</label>
               <button type="button" class="color-trigger" id="colorTrigger" data-action="toggleColorMenu">
                 <span class="color-dot" id="colorPreviewDot" style="background:#ccc;"></span>
                 <span class="color-trigger-text" id="colorPreviewLabel">点击选择专属颜色</span>
                 <svg class="chevron small" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
-              <div class="hint">点击弹出调色板，选择你的专属颜色</div>
+              <div class="hint" data-i18n="account.hint_color">点击弹出调色板，选择你的专属颜色</div>
               <div class="color-menu" id="colorMenu">
-                <div class="color-menu-title">选择专属颜色</div>
+                <div class="color-menu-title" data-i18n="account.color_menu_title">选择专属颜色</div>
                 <div class="color-menu-grid" id="colorMenuGrid"></div>
               </div>
             </div>
             <div class="field">
-              <label>邮箱</label>
-              <input id="accEmail" type="email" placeholder="选填，如 you@example.com">
-              <div class="hint">仅 QQ 邮箱（@qq.com）可获得头像</div>
+              <label data-i18n="account.label_email">邮箱</label>
+              <input id="accEmail" type="email" placeholder="选填，如 you@example.com" data-i18n-placeholder="account.ph_email">
+              <div class="hint" data-i18n="account.hint_email">仅 QQ 邮箱（@qq.com）可获得头像</div>
             </div>
-            <button class="btn btn-primary" id="saveProfileBtn" data-action="saveProfile">保存修改</button>
+            <button class="btn btn-primary" id="saveProfileBtn" data-action="saveProfile" data-i18n="account.btn_save">保存修改</button>
             <div class="msg" id="profileMsg"></div>
           </div>
         </div>
@@ -631,15 +633,15 @@
         <!-- 邮箱验证 -->
         <div class="card" id="emailCard">
           <div class="card-title-row">
-            <h3>📧 邮箱验证</h3>
+            <h3 data-i18n="account.email_card_title">📧 邮箱验证</h3>
             <span class="email-status pending" id="emailStatusVer"><span class="pulse"></span><span id="emailStatusVerText">未验证</span></span>
           </div>
-          <div class="card-subtitle">验证你的邮箱以使用完整功能</div>
+          <div class="card-subtitle" data-i18n="account.email_subtitle">验证你的邮箱以使用完整功能</div>
           <div class="field">
-            <button type="button" class="btn btn-primary" id="sendCodeBtn" data-action="sendEmailCode">发送验证码至填写的邮箱</button>
+            <button type="button" class="btn btn-primary" id="sendCodeBtn" data-action="sendEmailCode" data-i18n="account.btn_send_verify">发送验证码至填写的邮箱</button>
             <div class="code-row" id="codeRow">
-              <input id="emailCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码">
-              <button type="button" class="btn btn-primary" id="verifyCodeBtn" data-action="verifyEmailCode">验证绑定</button>
+              <input id="emailCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" data-i18n-placeholder="account.ph_code">
+              <button type="button" class="btn btn-primary" id="verifyCodeBtn" data-action="verifyEmailCode" data-i18n="account.btn_verify">验证绑定</button>
             </div>
             <div class="msg" id="emailMsg"></div>
           </div>
@@ -648,19 +650,19 @@
         <!-- 重置密码（折叠，默认收起） -->
         <div class="card card-collapse" id="pwdCard">
           <div class="collapse-title" data-action="toggleCard" data-card="pwdCard" role="button" tabindex="0">
-            <h3>🔒 重置密码</h3>
+            <h3 data-i18n="account.pwd_card_title">🔒 重置密码</h3>
             <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
           <div class="collapse-body">
             <div class="field">
-              <label>新密码</label>
-              <input id="newPassword" type="password" placeholder="4-50 个字符" maxlength="50" autocomplete="new-password">
+              <label data-i18n="account.label_new_password">新密码</label>
+              <input id="newPassword" type="password" placeholder="4-50 个字符" data-i18n-placeholder="account.ph_new_password" maxlength="50" autocomplete="new-password">
             </div>
             <div class="field">
-              <label>确认新密码</label>
-              <input id="newPassword2" type="password" placeholder="再次输入新密码" maxlength="50" autocomplete="new-password">
+              <label data-i18n="account.label_confirm_new_password">确认新密码</label>
+              <input id="newPassword2" type="password" placeholder="再次输入新密码" data-i18n-placeholder="account.ph_confirm_new_password" maxlength="50" autocomplete="new-password">
             </div>
-            <button class="btn btn-primary" id="changePwdBtn" data-action="changePassword">修改密码</button>
+            <button class="btn btn-primary" id="changePwdBtn" data-action="changePassword" data-i18n="account.btn_change_password">修改密码</button>
             <div class="msg" id="pwdMsg"></div>
           </div>
         </div>
@@ -669,20 +671,20 @@
       <div class="personal-col">
         <!-- 邀请好友 -->
         <div class="card" id="inviteCodeCard" style="display:none;">
-          <h3>🎫 邀请好友</h3>
+          <h3 data-i18n="account.invite_title">🎫 邀请好友</h3>
           <div class="invite-code-row">
             <code id="inviteCodeText" class="invite-code">点击下方按钮获取</code>
-            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" data-action="copyInviteCode" disabled>复制</button>
+            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" data-action="copyInviteCode" disabled data-i18n="account.btn_copy">复制</button>
           </div>
           <div class="hint" id="inviteHint" style="margin:8px 0 0;">分享给朋友注册用，一个码只能注册一次</div>
-          <button class="btn btn-primary" id="generateInviteBtn" data-action="loadInviteCode" style="margin-top:14px;">生成邀请码</button>
+          <button class="btn btn-primary" id="generateInviteBtn" data-action="loadInviteCode" style="margin-top:14px;" data-i18n="account.btn_generate">生成邀请码</button>
         </div>
 
         <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线） -->
         <div class="card" id="sessionCard">
           <div class="card-title-row">
-            <h3>💻 登录设备</h3>
-            <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions">下线其他所有设备</button>
+            <h3 data-i18n="account.session_title">💻 登录设备</h3>
+            <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions" data-i18n="account.btn_revoke_others">下线其他所有设备</button>
           </div>
           <div id="sessionList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="sessionMsg"></div>
@@ -693,7 +695,7 @@
              apps 里已查不到的 client_id（标「已移除的站点」）） -->
         <div class="card" id="clientCard">
           <div class="card-title-row">
-            <h3>🌐 已授权网站</h3>
+            <h3 data-i18n="account.client_title">🌐 已授权网站</h3>
           </div>
           <div id="clientList"><div class="empty">正在加载…</div></div>
           <div class="msg" id="clientMsg"></div>
@@ -701,13 +703,13 @@
 
         <!-- 退出登录：大卡片 -->
         <div class="card-logout">
-          <h3>退出登录</h3>
-          <div class="logout-tip">
+          <h3 data-i18n="account.logout_title">退出登录</h3>
+          <div class="logout-tip" data-i18n="account.logout_tip">
             退出后在本站需重新登录，其他设备不受影响
           </div>
           <button class="btn-logout" data-action="logout">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            退出登录
+            <span data-i18n="account.btn_logout">退出登录</span>
           </button>
         </div>
       </div>
@@ -715,7 +717,7 @@
   </div>
 </div>
 
-<footer class="footer"><div class="footer-copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
+<footer class="footer"><div class="footer-copy" data-i18n="footer.copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
 
 <script src="app.js"></script>
 <script src="account.js" defer></script>

@@ -9,7 +9,7 @@ function setAvatarFromUrl(el, avatarUrl, nickname, color) {
   if (!avatarUrl) { fallback(); return; }
   var img = document.createElement('img');
   img.src = avatarUrl;
-  img.alt = (nickname || '用户') + ' 的头像';
+  img.alt = t('account.avatar_alt', { name: nickname || t('account.user_fallback') });
   img.referrerPolicy = 'no-referrer';
   img.onerror = fallback;
   el.textContent = '';
@@ -31,8 +31,8 @@ function enterUserView(avatarUrl) {
   var s = getSession();
   // 专属颜色驱动主卡渐变
   if (s && s.color) document.documentElement.style.setProperty('--user-color', s.color);
-  document.getElementById('welcomeText').textContent = (s ? s.nickname : '') + '，欢迎回来 👋';
-  document.getElementById('userUid').textContent = 'UID：' + (s ? s.userId : '');
+  document.getElementById('welcomeText').textContent = t('account.welcome', { name: s ? s.nickname : '' });
+  document.getElementById('userUid').textContent = t('account.uid', { uid: s ? s.userId : '' });
   // 大头像：直接使用会话或接口返回的头像链接，加载失败回退昵称首字 + 专属颜色
   var avatar = document.getElementById('profileAvatar');
   if (avatar) setAvatarFromUrl(avatar, avatarUrl || (s && s.avatar), s ? s.nickname : '', s ? s.color : '#2563eb');
@@ -41,9 +41,9 @@ function enterUserView(avatarUrl) {
     colorDot.style.background = s.color;
     colorDot.style.boxShadow = '0 0 0 3px ' + s.color + '40';
   }
-  document.getElementById('userColorText').textContent = '专属颜色';
+  document.getElementById('userColorText').textContent = t('account.user_color');
   var regEl = document.getElementById('userRegTime');
-  if (regEl && window._regTime) regEl.textContent = '注册于 ' + window._regTime;
+  if (regEl && (window._regDate || window._regRaw)) regEl.textContent = t('account.reg_time', { date: fmtRegDate() });
 }
 
 // 60 种 Material 调色板（与 src/lib.js USER_COLORS 一致）
@@ -58,6 +58,38 @@ const USER_COLORS = [
 
 // 当前选中的颜色（保存按钮提交用）；null = 尚未在色板点选
 let selectedColor = null;
+
+// ===== 语言切换（onChange）所需的状态 =====
+// 注册日期原始值：解析成功存 Date，失败存原始串；fmtRegDate() 据此按语言格式化
+window._regDate = null;
+window._regRaw = '';
+// 邀请码卡最近一次渲染状态（浏览器语言切换时按此重绘，不再重新请求，避免凭空生成邀请码）
+var inviteView = null;
+// 发码按钮倒计时状态（语言切换时重绘按钮文案）
+var countdownEl = null, countdownLeft = 0, countdownDone = false;
+
+// msg 元素当前对应的语言包 key：语言切换时按新语言重绘；
+// 后端返回的 err.message 等外部文案无 key（key 为空），不参与重绘
+function setMsg(el, key, params, cls) {
+  el.className = cls || 'msg';
+  el.dataset.i18nKey = key;
+  el.dataset.i18nParams = params ? JSON.stringify(params) : '';
+  el.textContent = t(key, params);
+}
+function setRawMsg(el, text, cls) {
+  el.className = cls || 'msg';
+  el.dataset.i18nKey = '';
+  el.dataset.i18nParams = '';
+  el.textContent = text;
+}
+function refreshMsgs() {
+  document.querySelectorAll('.msg[data-i18n-key]').forEach(function (el) {
+    var key = el.dataset.i18nKey;
+    if (!key) return;
+    var params = el.dataset.i18nParams ? JSON.parse(el.dataset.i18nParams) : undefined;
+    el.textContent = t(key, params);
+  });
+}
 
 // 渲染色板浮层：current 为已有颜色，对其高亮 .active
 function renderColorPicker(current) {
@@ -74,7 +106,7 @@ function syncColorTrigger(hex) {
   const dot = document.getElementById('colorPreviewDot');
   const label = document.getElementById('colorPreviewLabel');
   if (hex && dot) dot.style.background = hex;
-  if (label) label.textContent = hex ? hex.toUpperCase() : '点击选择专属颜色';
+  if (label) label.textContent = hex ? hex.toUpperCase() : t('account.color_placeholder');
 }
 
 // 点选色块：仅记录选中值 + 更新色板高亮 / 触发器局部预览
@@ -147,10 +179,10 @@ function updateEmailStatus(data) {
   if (ver) {
     if (data.email && data.email_verified) {
       ver.className = 'email-status ok';
-      if (verT) verT.textContent = '已验证';
+      if (verT) verT.textContent = t('account.email_verified');
     } else {
       ver.className = 'email-status pending';
-      if (verT) verT.textContent = '未验证';
+      if (verT) verT.textContent = t('account.email_unverified');
     }
   }
   // 已验证后不再显示“发送验证码”；未验证或未绑定时仍显示以便绑定
@@ -171,19 +203,24 @@ function showCodeRow(show) {
   if (row) row.classList.toggle('show', show);
 }
 
-// 发码按钮倒计时
+// 发码按钮倒计时；状态记录在模块级变量，语言切换时可按新语言重绘
+function renderCountdown() {
+  if (!countdownEl) return;
+  countdownEl.textContent = countdownDone ? t('account.btn_send_code') : t('account.countdown', { s: countdownLeft });
+}
 function startCountdown(btn) {
-  var left = 60;
-  btn.textContent = left + 's 重试';
+  countdownEl = btn;
+  countdownLeft = 60;
+  countdownDone = false;
+  renderCountdown();
   var timer = setInterval(function () {
-    left--;
-    if (left <= 0) {
+    countdownLeft--;
+    if (countdownLeft <= 0) {
       clearInterval(timer);
       btn.disabled = false;
-      btn.textContent = '发送验证码';
-    } else {
-      btn.textContent = left + 's 重试';
+      countdownDone = true;
     }
+    renderCountdown();
   }, 1000);
 }
 
@@ -195,20 +232,19 @@ async function sendEmailCode() {
   msg.className = 'msg error';
   msg.textContent = '';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    msg.textContent = '请先填写正确的邮箱地址';
+    setMsg(msg, 'common.err_email_invalid', null, 'msg error');
     return;
   }
   btn.disabled = true;
-  msg.textContent = '发送中…';
+  setMsg(msg, 'common.msg_sending', null, 'msg error');
   try {
     await api('/email/code', { method: 'POST', body: JSON.stringify({ email, purpose: 'verify' }) });
-    msg.className = 'msg ok';
-    msg.textContent = '验证码已发送，10 分钟内有效，请查收';
+    setMsg(msg, 'common.msg_code_sent', null, 'msg ok');
     showCodeRow(true);
     startCountdown(btn);
   } catch (err) {
     btn.disabled = false;
-    msg.textContent = err.message;
+    setRawMsg(msg, err.message, 'msg error');
   }
 }
 
@@ -220,14 +256,13 @@ async function verifyEmailCode() {
   const code = document.getElementById('emailCode').value.trim();
   msg.className = 'msg error';
   msg.textContent = '';
-  if (!email) { msg.textContent = '请先填写邮箱'; return; }
-  if (!code) { msg.textContent = '请输入验证码'; return; }
+  if (!email) { setMsg(msg, 'common.err_email_required', null, 'msg error'); return; }
+  if (!code) { setMsg(msg, 'common.err_code_required', null, 'msg error'); return; }
   btn.disabled = true;
-  msg.textContent = '验证中…';
+  setMsg(msg, 'account.msg_verifying', null, 'msg error');
   try {
     await api('/email/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
-    msg.className = 'msg ok';
-    msg.textContent = '绑定成功，邮箱已验证 ✔';
+    setMsg(msg, 'account.msg_email_verified', null, 'msg ok');
     document.getElementById('emailCode').value = '';
     showCodeRow(false);
     // 重新拉取资料，刷新邮箱与状态徽标；头像也可能随邮箱变化
@@ -235,7 +270,7 @@ async function verifyEmailCode() {
     updateEmailStatus(data);
     setAvatarFromUrl(document.getElementById('profileAvatar'), data.avatar, data.nickname, data.color);
   } catch (err) {
-    msg.textContent = err.message;
+    setRawMsg(msg, err.message, 'msg error');
   } finally {
     btn.disabled = false;
   }
@@ -250,16 +285,16 @@ async function saveProfile() {
   msg.className = 'msg error';
   // 昵称校验：1-20 字符
   if (!nickname || nickname.length > 20) {
-    msg.textContent = '昵称需为 1-20 个字符';
+    setMsg(msg, 'err.invalid_nickname', null, 'msg error');
     return;
   }
   // 非空时必须为合法邮箱地址（不限服务商）
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    msg.textContent = '请输入正确的邮箱地址';
+    setMsg(msg, 'err.invalid_email', null, 'msg error');
     return;
   }
   btn.disabled = true;
-  msg.textContent = '保存中…';
+  setMsg(msg, 'account.msg_saving', null, 'msg error');
   try {
     // 邮箱随资料一并保存；若变更，后端会重置验证状态，右侧需重新验证
     const body = { nickname: nickname, color: selectedColor || undefined, email: email };
@@ -276,17 +311,16 @@ async function saveProfile() {
     document.documentElement.style.setProperty('--user-color', data.color);
     updateColorUI(data.color);
     syncColorTrigger(data.color);
-    document.getElementById('userColorText').textContent = '专属颜色';
+    document.getElementById('userColorText').textContent = t('account.user_color');
     // 昵称同步：欢迎语 + 头像回退首字
-    document.getElementById('welcomeText').textContent = data.nickname + '，欢迎回来 👋';
+    document.getElementById('welcomeText').textContent = t('account.welcome', { name: data.nickname });
     // 邮箱/颜色/昵称可能已变更：同步刷新头像（无链接自动回退首字）
     setAvatarFromUrl(document.getElementById('profileAvatar'), data.avatar, data.nickname, data.color);
-    msg.className = 'msg ok';
-    msg.textContent = '资料已更新 ✔';
+    setMsg(msg, 'account.msg_profile_saved', null, 'msg ok');
     // 邮箱若变更，后端已重置验证状态 → 刷新右侧徽章与发码按钮
     refreshEmailStatus();
   } catch (err) {
-    msg.textContent = err.message;
+    setRawMsg(msg, err.message, 'msg error');
   } finally {
     btn.disabled = false;
   }
@@ -296,30 +330,41 @@ async function saveProfile() {
 async function loadInviteCode() {
   const codeEl = document.getElementById('inviteCodeText');
   const copyBtn = document.getElementById('copyInviteBtn');
-  const hintEl = document.getElementById('inviteHint');
   if (!codeEl) return;
-  codeEl.textContent = '加载中…';
+  codeEl.textContent = t('common.loading');
   if (copyBtn) copyBtn.disabled = true;
   try {
     const data = await api('/invite-code');
     if (data && data.paused) {
-      codeEl.textContent = '邀请码生成已暂停';
-      if (hintEl) hintEl.textContent = '管理员已暂停邀请码生成，暂无法获取邀请码';
+      inviteView = { key: 'account.invite_paused', hintKey: 'account.invite_paused_hint' };
     } else if (data && data.need_email_verify) {
       // 未绑定/未验证邮箱：服务端只在「生成新码」这一步拦，已有未使用码会照常返回（见 worker.js）
-      codeEl.textContent = '需先验证邮箱';
-      if (hintEl) hintEl.textContent = '绑定并验证邮箱后才能生成邀请码；已有未使用的邀请码仍会显示';
+      inviteView = { key: 'account.invite_need_verify', hintKey: 'account.invite_need_verify_hint' };
     } else if (data && data.code) {
-      codeEl.textContent = data.code;
-      if (copyBtn) copyBtn.disabled = false;
-      if (hintEl) hintEl.textContent = '分享给朋友注册用，一个码只能注册一次';
+      inviteView = { code: data.code, hintKey: 'account.invite_hint' };
     } else {
-      codeEl.textContent = '暂无可用邀请码';
-      if (hintEl) hintEl.textContent = '点击「生成邀请码」创建一个';
+      inviteView = { key: 'account.invite_none', hintKey: 'account.invite_none_hint' };
     }
   } catch (err) {
-    codeEl.textContent = '获取失败';
+    inviteView = { key: 'account.invite_failed' };
   }
+  renderInvite();
+}
+
+// 按 inviteView 重绘邀请码区（语言切换时也调用，避免重新请求凭空生成邀请码）
+function renderInvite() {
+  var codeEl = document.getElementById('inviteCodeText');
+  var copyBtn = document.getElementById('copyInviteBtn');
+  var hintEl = document.getElementById('inviteHint');
+  if (!codeEl || !inviteView) return;
+  if (inviteView.code) {
+    codeEl.textContent = inviteView.code;
+    if (copyBtn) copyBtn.disabled = false;
+  } else {
+    codeEl.textContent = t(inviteView.key);
+    if (copyBtn) copyBtn.disabled = true;
+  }
+  if (hintEl && inviteView.hintKey) hintEl.textContent = t(inviteView.hintKey);
 }
 
 // 复制邀请码
@@ -329,9 +374,9 @@ function copyInviteCode() {
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById('copyInviteBtn');
     const old = btn.textContent;
-    btn.textContent = '已复制 ✅';
+    btn.textContent = t('account.copied');
     setTimeout(() => { btn.textContent = old; }, 1500);
-  }).catch(() => alert('复制失败，请手动复制'));
+  }).catch(() => alert(t('account.copy_failed')));
 }
 
 // 折叠卡：点击标题展开/收起
@@ -347,27 +392,26 @@ async function changePassword() {
   const newP2 = document.getElementById('newPassword2').value;
   msg.className = 'msg error';
   if (!newP || !newP2) {
-    msg.textContent = '请填写所有字段';
+    setMsg(msg, 'account.err_all_fields', null, 'msg error');
     return;
   }
   if (newP !== newP2) {
-    msg.textContent = '两次输入的新密码不一致';
+    setMsg(msg, 'account.err_new_password_mismatch', null, 'msg error');
     return;
   }
   if (newP.length < 4 || newP.length > 50) {
-    msg.textContent = '新密码需为 4-50 个字符';
+    setMsg(msg, 'err.invalid_new_password', null, 'msg error');
     return;
   }
   btn.disabled = true;
-  msg.textContent = '修改中…';
+  setMsg(msg, 'account.msg_changing', null, 'msg error');
   try {
     await api('/password', { method: 'PUT', body: JSON.stringify({ new_password: newP }) });
-    msg.className = 'msg ok';
-    msg.textContent = '密码已更新 ✔';
+    setMsg(msg, 'account.msg_password_updated', null, 'msg ok');
     document.getElementById('newPassword').value = '';
     document.getElementById('newPassword2').value = '';
   } catch (err) {
-    msg.textContent = err.message;
+    setRawMsg(msg, err.message, 'msg error');
   } finally {
     btn.disabled = false;
   }
@@ -381,55 +425,50 @@ async function loadSessions() {
   try {
     var data = await api('/sessions');
     if (!data.sessions || !data.sessions.length) {
-      list.innerHTML = '<div class="empty">暂无直接登录的设备</div>';
+      list.innerHTML = '<div class="empty">' + t('account.no_sessions') + '</div>';
       return;
     }
     list.innerHTML = data.sessions.map(function (s) {
-      var meta = '最后活跃 ' + fmtDateTime(s.last_seen_at) + ' · 登录于 ' + fmtDateTime(s.created_at);
+      var meta = t('account.session_meta', { last: fmtDateTime(s.last_seen_at), created: fmtDateTime(s.created_at) });
       var right = s.current
-        ? '<span class="badge-current">当前设备</span>'
+        ? '<span class="badge-current">' + t('account.badge_current') + '</span>'
         // s.id 为服务端返回的整数 rowid，作为 data-id 交给委托取值（无字符串注入风险）
-        : '<button class="btn btn-ghost btn-sm" data-action="revokeSession" data-id="' + s.id + '">下线</button>';
+        : '<button class="btn btn-ghost btn-sm" data-action="revokeSession" data-id="' + s.id + '">' + t('account.btn_revoke') + '</button>';
       return '<div class="session-item' + (s.current ? ' current' : '') + '">'
         + '<div class="main"><div class="dev"><span class="dot"></span>' + escapeHtml(s.device) + '</div>'
         + '<div class="meta">' + meta + '</div></div>' + right + '</div>';
     }).join('');
   } catch (e) {
-    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
+    list.innerHTML = '<div class="empty">' + t('common.err_load_failed') + '</div>';
   }
 }
 
 // 下线单个设备
 async function revokeSession(id) {
   var msg = document.getElementById('sessionMsg');
-  msg.className = 'msg';
-  msg.textContent = '处理中…';
+  setMsg(msg, 'common.msg_processing', null, 'msg');
   try {
     await api('/sessions/revoke', { method: 'POST', body: JSON.stringify({ id: id }) });
-    msg.className = 'msg ok';
-    msg.textContent = '该设备已下线 ✔';
+    setMsg(msg, 'account.msg_session_revoked', null, 'msg ok');
     // 两个卡都可能调用本函数（设备卡 / 站点展开后的设备行），故两张都刷新
     loadSessions();
     loadClients();
   } catch (e) {
-    msg.className = 'msg error';
-    msg.textContent = e.message;
+    setRawMsg(msg, e.message, 'msg error');
   }
 }
 
 // 下线除当前设备外的全部设备
 async function revokeOtherSessions() {
   var msg = document.getElementById('sessionMsg');
-  msg.className = 'msg';
-  msg.textContent = '处理中…';
+  setMsg(msg, 'common.msg_processing', null, 'msg');
   try {
     var data = await api('/sessions/revoke-others', { method: 'POST' });
-    msg.className = 'msg ok';
-    msg.textContent = data.revoked ? '已下线其他 ' + data.revoked + ' 台设备 ✔' : '没有其他已登录设备';
+    setMsg(msg, data.revoked ? 'account.revoked_others' : 'account.no_other_sessions',
+      data.revoked ? { n: data.revoked } : undefined, 'msg ok');
     loadSessions();
   } catch (e) {
-    msg.className = 'msg error';
-    msg.textContent = e.message;
+    setRawMsg(msg, e.message, 'msg error');
   }
 }
 
@@ -445,14 +484,15 @@ async function loadClients() {
   try {
     var data = await api('/clients');
     if (!data.clients || !data.clients.length) {
-      list.innerHTML = '<div class="empty">暂无来自其他网站或应用的登录</div>';
+      list.innerHTML = '<div class="empty">' + t('account.no_clients') + '</div>';
       return;
     }
     list.innerHTML = data.clients.map(function (c) {
       // 来源副标题：已登记站点显示 origin；未登记来源 / 已移除站点没有 origin，改成显式标注——
       // 既不渲染出 "null"，也提醒用户这个名字是调用方自报的，不可当权威
-      var src = c.unregistered ? '未登记来源 · ' : (c.origin ? escapeHtml(c.origin) + ' · ' : '');
-      var meta = src + c.session_count + ' 处登录 · 最近活跃 ' + fmtDateTime(c.last_seen_at);
+      // account.src_unregistered 已自带尾部 ' · '，故未登记来源不再另拼
+      var src = c.unregistered ? t('account.src_unregistered') : (c.origin ? escapeHtml(c.origin) + ' · ' : '');
+      var meta = t('account.client_meta', { src: src, count: c.session_count, last: fmtDateTime(c.last_seen_at) });
       // 行的形状与「登录设备」卡一致：左 .main 里第一行站点名、第二行灰字说明，右侧是注销按钮
       return '<div class="session-item">'
         + '<div class="main">'
@@ -460,27 +500,24 @@ async function loadClients() {
         + '<div class="meta">' + meta + '</div>'
         + '</div>'
         // c.id 对已登记站点是 apps.id（数字），对未登记来源是原始串（字符串），所以必须转义后再放进属性
-        + '<button class="btn btn-ghost btn-sm" data-action="revokeClient" data-id="' + escapeHtml(String(c.id)) + '">注销登录</button>'
+        + '<button class="btn btn-ghost btn-sm" data-action="revokeClient" data-id="' + escapeHtml(String(c.id)) + '">' + t('account.btn_revoke_client') + '</button>'
         + '</div>';
     }).join('');
   } catch (e) {
-    list.innerHTML = '<div class="empty">加载失败，请稍后重试</div>';
+    list.innerHTML = '<div class="empty">' + t('common.err_load_failed') + '</div>';
   }
 }
 
 // 注销某网站的登录：撤销本账号在该站点的全部会话（该网站里需重新登录）
 async function revokeClient(id) {
   var msg = document.getElementById('clientMsg');
-  msg.className = 'msg';
-  msg.textContent = '处理中…';
+  setMsg(msg, 'common.msg_processing', null, 'msg');
   try {
     var data = await api('/clients/revoke', { method: 'POST', body: JSON.stringify({ id: id }) });
-    msg.className = 'msg ok';
-    msg.textContent = '已注销 ' + data.revoked + ' 处登录 ✔';
+    setMsg(msg, 'account.revoked_clients', { n: data.revoked }, 'msg ok');
     loadClients();
   } catch (e) {
-    msg.className = 'msg error';
-    msg.textContent = e.message;
+    setRawMsg(msg, e.message, 'msg error');
   }
 }
 
@@ -490,14 +527,23 @@ function escapeHtml(t) {
   return d.innerHTML;
 }
 
-// 登录时间显示：数据库存 UTC，转本地时区后截到分钟（YYYY-MM-DD HH:MM）
+// 登录时间显示：数据库存 UTC，转本地时区后截到分钟（中文保持 YYYY-MM-DD HH:MM，英文走 Intl）
 function fmtDateTime(v) {
   if (!v) return '';
   var s = String(v).replace('T', ' ');  // 'YYYY-MM-DD HH:MM:SS'（UTC）
   var d = new Date(s.replace(' ', 'T') + 'Z');  // 按 UTC 解析
   if (isNaN(d.getTime())) return s.slice(0, 16);
+  if (getLang() === 'en') return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(d);
   var p = function (n) { return n < 10 ? '0' + n : String(n); };
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+// 注册日期显示：中文保持「X年X月X日」手拼原格式，英文走 Intl.DateTimeFormat
+function fmtRegDate() {
+  var d = window._regDate;
+  if (!d) return window._regRaw;
+  if (getLang() === 'en') return new Intl.DateTimeFormat('en', { year: 'numeric', month: 'long', day: 'numeric' }).format(d);
+  return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
 
 /* 事件绑定：CSP 去掉 script-src 'unsafe-inline' 后内联 onclick 会被拦下，
@@ -537,8 +583,9 @@ if (getSession()) {
       if (data && data.created_at) {
         var s = String(data.created_at);
         var d = new Date(s.replace(' ', 'T'));
-        window._regTime = isNaN(d.getTime()) ? s.slice(0, 10)
-          : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+        // 只存原始值，格式化交给 fmtRegDate()（语言切换时需按当前语言重新格式化）
+        if (isNaN(d.getTime())) { window._regDate = null; window._regRaw = s.slice(0, 10); }
+        else { window._regDate = d; window._regRaw = ''; }
       }
       // 同步本地会话的 avatar（邮箱变更后 avatar 会更新；老用户本地无此字段时补齐）
       var local = getSession();
@@ -562,3 +609,23 @@ if (getSession()) {
   // 无本地会话：直接展示未登录界面，无需请求
   showAuthView();
 }
+
+/* 语言切换：重绘所有随语言变化的动态文案。
+   已渲染的列表 innerHTML（设备 / 授权网站）、倒计时按钮、已显示的 msg 都必须在此重跑，否则停在旧语言 */
+onChange(function () {
+  var s = getSession();
+  if (s) {
+    document.getElementById('welcomeText').textContent = t('account.welcome', { name: s.nickname });
+    document.getElementById('userUid').textContent = t('account.uid', { uid: s.userId });
+    document.getElementById('userColorText').textContent = t('account.user_color');
+    var regEl = document.getElementById('userRegTime');
+    if (regEl && (window._regDate || window._regRaw)) regEl.textContent = t('account.reg_time', { date: fmtRegDate() });
+    syncColorTrigger(selectedColor);   // 颜色触发器文案
+    refreshEmailStatus();              // 邮箱状态徽标（重新拉取 /me）
+    loadSessions();                    // 登录设备列表
+    loadClients();                     // 已授权网站列表
+    renderInvite();                    // 邀请码区（按最近一次状态重绘，不重新请求）
+    renderCountdown();                 // 发码按钮倒计时文案
+  }
+  refreshMsgs();                       // 已显示的 msg
+});
