@@ -157,9 +157,9 @@ document.addEventListener('click', function (e) {
   }
 });
 
-// 填充修改资料表单（来自 /api/me）
-async function loadProfileForm() {
-  const data = await api('/me');
+// 填充修改资料表单。data 由启动时的 /api/me 结果直接传入——本函数原先自己再 await api('/me')，
+// 与启动校验那一次完全重复，白白多出一趟串行往返（账号中心的加载转圈因此翻倍）
+function loadProfileForm(data) {
   document.getElementById('accNickname').value = data.nickname || '';
   document.getElementById('accEmail').value = data.email || '';
   renderColorPicker(data.color);
@@ -594,7 +594,7 @@ if (getSession()) {
         localStorage.setItem(LS_USER, JSON.stringify(local));
       }
       enterUserView(data.avatar);
-      loadProfileForm();
+      loadProfileForm(data);   // 复用上面这次 /api/me 的结果，不再重复请求
       loadSessions();
       loadClients();
       // 显示邀请码卡片（空态：点击"生成邀请码"才请求后端，不随页面自动生成）

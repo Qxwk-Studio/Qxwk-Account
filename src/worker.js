@@ -779,6 +779,35 @@ function addSecurityHeaders(res) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
+// ---------- 静态资源缓存策略 ----------
+// 静态文件名是固定的（style.css / app.js / favicon.webp …），**没有内容哈希**，因此不能给长缓存：
+// 发版后旧文件会在浏览器里「新鲜」很久，拿不到新版。故只给一个短新鲜期（5 分钟），
+// 过期后必须回源校验（must-revalidate），配合 CF 资源服务自带的 ETag 走 304，重新下载的代价很小。
+// HTML 用 no-cache：页面结构随时可能随发版变化，每次都要确认最新（与默认的
+// public, max-age=0, must-revalidate 效果一致，这里显式写出来是为了让策略一眼可见）。
+const STATIC_MAX_AGE = 300; // 秒
+
+// 给静态资源响应补 Cache-Control。**必须写在 Worker 里**：wrangler.toml 开了 run_worker_first，
+// Cloudflare 的 _headers 文件规则不会作用于 Worker 生成的响应（见 CF 文档 Headers）。
+// 非 200（如 404）不缓存，避免把「文件不存在」也缓存住。
+function addCacheHeaders(res) {
+  if (res.status !== 200) return res;
+  const h = new Headers(res.headers);
+  const type = res.headers.get('Content-Type') || '';
+  h.set('Cache-Control', type.includes('text/html')
+    ? 'no-cache'
+    : 'public, max-age=' + STATIC_MAX_AGE + ', must-revalidate');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
+// API 响应一律 no-store：/api/me、/api/sessions 等返回的是鉴权数据，
+// 不该被浏览器或中间缓存留存；/api/config 等公开接口量小，每次现取也无所谓。
+function noStore(res) {
+  const h = new Headers(res.headers);
+  h.set('Cache-Control', 'no-store');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 // ---------- 入口 ----------
 
 export default {
@@ -801,16 +830,16 @@ export default {
       });
     }
 
-    // API 路由
+    // API 路由（响应一律 no-store，见 noStore 说明）
     if (url.pathname.startsWith('/api/')) {
       const result = await handleApi(request, env);
-      return corsHeaders(request, result || error('接口不存在', 404, 'not_found'));
+      return corsHeaders(request, noStore(result || error('接口不存在', 404, 'not_found')));
     }
 
     // 其余：静态资源（public/），并同步 CORS 头
     // 注意：这段能执行到，依赖 wrangler.toml 里 [assets] 的 binding = "ASSETS" + run_worker_first = true
-    // —— 默认的 assets-first 路由会让 HTML 由资源服务直接响应、根本不进 Worker，安全头就加不上
+    // —— 默认的 assets-first 路由会让 HTML 由资源服务直接响应、根本不进 Worker，安全头与缓存头就加不上
     const res = await env.ASSETS.fetch(request);
-    return corsHeaders(request, addSecurityHeaders(res));
+    return corsHeaders(request, addCacheHeaders(addSecurityHeaders(res)));
   },
 };
