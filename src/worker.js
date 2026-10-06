@@ -748,7 +748,8 @@ async function handleApi(request, env) {
 // 新增页面/按钮时**不要再写内联脚本或 onclick**，否则会被 CSP 静默拦掉（在控制台才会报错）。
 // style-src 仍保留 'unsafe-inline'：页面里有内联 <style> 块，且多处用 style="..." 做数据驱动着色
 // （如颜色色板 background），拆成 class 得不偿失。
-// img-src 放行 weavatar.com（QQ 头像外链）。
+// img-src 放行 cravatar.com（QQ 头像外链）：旧服务 weavatar.com 已失效（对任何请求都 302 跳到 cravatar），
+//   现由 getAvatarUrl 直接产出 cravatar 链接，故只需放行这一个域名。
 // static.cloudflareinsights.com / cloudflareinsights.com 是**唯一的例外**：只要该域名的
 //   Cloudflare Web Analytics 开着，CF 就会在边缘往返回的 HTML 里塞一段 beacon（type="module"
 //   的 static.cloudflareinsights.com/beacon.min.js，用它自己的域名回传数据），不是我们自己写的。
@@ -762,7 +763,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https://weavatar.com",
+  "img-src 'self' data: https://cravatar.com",
   "connect-src 'self' https://cloudflareinsights.com",
   "base-uri 'none'",
   "form-action 'none'",

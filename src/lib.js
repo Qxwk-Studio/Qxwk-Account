@@ -3,6 +3,8 @@
 // 本文件是通行证自有的认证实现；早先由 Qxwk-CityFootprint/backend/src/lib.js 拆分而来，
 // 那边已改为把认证外包给本通行证（不再持有密码/会话），两份代码已分叉、勿对照
 
+import { createHash } from 'node:crypto';
+
 // 60 种 Material 调色板，保证新用户颜色不重复（直到池子占满）
 export const USER_COLORS = [
   '#dc2626', '#ef4444', '#f87171', '#ea580c', '#f97316', '#b45309', '#fb923c', '#fdba74', '#d97706', '#f59e0b',
@@ -282,16 +284,16 @@ export function isValidPassword(p) {
   return typeof p === 'string' && p.length >= 4 && p.length <= 50;
 }
 
-// 根据邮箱生成 WeAvatar 头像链接：仅 QQ 邮箱返回链接；其余邮箱或无邮箱返回 null（前端回退文字头像）
-// 哈希用 SHA-256（Web Crypto 原生 crypto.subtle.digest，替代原先手写的 150 行 MD5 实现）：
-// WeAvatar 文档明确 HASH 可为 SHA256 或 MD5，并推荐 SHA256
-// 注意：crypto.subtle.digest 只能异步，故本函数是 async，所有调用方必须 await
-export async function getAvatarUrl(email) {
+// 根据邮箱生成 Cravatar 头像链接：仅 QQ 邮箱返回链接；其余邮箱或无邮箱返回 null（前端回退文字头像）
+// HASH 按 Cravatar/Gravatar 规范取 MD5（邮箱去首尾空格 → 转小写 → MD5），得到 32 位十六进制。
+// **不要改回 SHA-256**：那是 64 位，Cravatar 会直接 500（旧 WeAvatar 接受 SHA256，故早前用它）。
+// MD5 走 node:crypto（wrangler 已开 nodejs_compat）——crypto.subtle 不支持 MD5。
+// 本函数是同步的；调用处沿用的 `await` 对同步返回值同样成立，无需改动。
+export function getAvatarUrl(email) {
   if (!email) return null;
   if (!/@qq\.com$/i.test(String(email).trim())) return null;
-  const data = new TextEncoder().encode(String(email).trim().toLowerCase());
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return 'https://weavatar.com/avatar/' + toHex(digest) + '?s=400&d=404';
+  const hash = createHash('md5').update(String(email).trim().toLowerCase()).digest('hex');
+  return 'https://cravatar.com/avatar/' + hash + '?s=400&d=404';
 }
 
 // 生成 6 位数字邮箱验证码（crypto 随机，非 Math.random）
