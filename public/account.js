@@ -32,7 +32,7 @@ function enterUserView(avatarUrl) {
   // 专属颜色驱动主卡渐变
   if (s && s.color) document.documentElement.style.setProperty('--user-color', s.color);
   document.getElementById('welcomeText').textContent = t('account.welcome', { name: s ? s.nickname : '' });
-  document.getElementById('userUid').textContent = t('account.uid', { uid: s ? s.userId : '' });
+  document.getElementById('userUid').textContent = t('account.uid', { uid: s ? (s.sub || s.userId) : '' });
   // 大头像：直接使用会话或接口返回的头像链接，加载失败回退昵称首字 + 专属颜色
   var avatar = document.getElementById('profileAvatar');
   if (avatar) setAvatarFromUrl(avatar, avatarUrl || (s && s.avatar), s ? s.nickname : '', s ? s.color : '#2563eb');
@@ -160,6 +160,11 @@ document.addEventListener('click', function (e) {
 function loadProfileForm(data) {
   document.getElementById('accNickname').value = data.nickname || '';
   document.getElementById('accEmail').value = data.email || '';
+  document.getElementById('accName').value = data.name || '';
+  document.getElementById('accPicture').value = data.picture || '';
+  document.getElementById('accLocale').value = data.locale || '';
+  document.getElementById('accZoneinfo').value = data.zoneinfo || '';
+  document.getElementById('accWebsite').value = data.website || '';
   renderColorPicker(data.color);
   syncColorTrigger(data.color);
   // 用服务端的最新颜色驱动主卡渐变（仅在初始化时设置，选色阶段不更新）
@@ -341,7 +346,15 @@ async function saveProfile() {
   try {
     const data = await api('/me', {
       method: 'PATCH',
-      body: JSON.stringify({ nickname: nickname, color: selectedColor || undefined }),
+      body: JSON.stringify({
+        nickname,
+        color: selectedColor || undefined,
+        name: document.getElementById('accName').value.trim(),
+        picture: document.getElementById('accPicture').value.trim(),
+        locale: document.getElementById('accLocale').value.trim(),
+        zoneinfo: document.getElementById('accZoneinfo').value.trim(),
+        website: document.getElementById('accWebsite').value.trim(),
+      }),
     });
     loadProfileForm(data);
     // 更新本地快照
@@ -564,9 +577,10 @@ api('/me')
       if (isNaN(d.getTime())) { window._regDate = null; window._regRaw = s.slice(0, 10); }
       else { window._regDate = d; window._regRaw = ''; }
     }
-    // 同步本地快照的 avatar（邮箱变更后 avatar 会更新）
+    // 同步本地快照的 UUID（sub）与头像（邮箱变更后 avatar 会更新）
     var local = getSession() || {};
-    local.userId = data.userId || data.sub;
+    local.sub = data.sub || data.userId;
+    local.userId = local.sub;
     local.nickname = data.nickname;
     local.color = data.color;
     local.email = data.email || null;

@@ -31,6 +31,7 @@ function saveSession(data) {
   const u = unwrap(data);
   if (!u) return;
   localStorage.setItem(LS_USER, JSON.stringify({
+    sub: u.sub || u.userId,
     userId: u.userId || u.sub,
     nickname: u.nickname,
     color: u.color,
