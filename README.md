@@ -56,8 +56,6 @@ scripts/
 └── gen-oidc-key.mjs       # 生成 OIDC 私钥 JWK
 ```
 
-> 旧库的一次性迁移文件**不在仓库里**，放在 `C:\Code\Qxwk-Account-迁移\0002_oidc.sql`，只用于把线上旧表改名保留并复制数据。
-
 ## 🗄️ 数据库（11 张表）
 
 | 表 | 作用 |
