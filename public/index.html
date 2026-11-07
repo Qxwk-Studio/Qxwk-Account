@@ -1,38 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="referrer" content="strict-origin">
-<title data-i18n="index.title">Qxwk 通行证</title>
-<meta name="description" content="Qxwk 账号通行证 —— 青翔未阔工作室统一账号中心。" data-i18n-content="index.description">
-<link rel="icon" type="image/webp" href="/favicon.webp">
-<!-- 刻意不引 style.css：本页是过渡用的极简跳转页，:root 变量、body、字体全是自成一套，
-     与 style.css 那 104 行（login/account 共用的 navbar + 设计变量 + reset）零重叠。
-     引进来只会多出 14 条本页从不使用的规则，属于「引入」而非「复用」 -->
-<style>
-  :root { color-scheme: light; --bg:#f7f7f8; --surface:#ffffff; --text:#171717; --text-muted:#52525b; --border:rgba(23,23,23,.12); --brand:#4b3fe3; --brand-soft:#f2f7ff; --brand-text:#1a1759; }
-  :root[data-theme="dark"] { color-scheme: dark; --bg:#0f0f12; --surface:#17171b; --text:#e5e5e5; --text-muted:#a1a1aa; --border:rgba(229,229,229,.12); --brand:#6054f1; --brand-soft:#1a1759; --brand-text:#cfd8ff; }
-  * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--text); font: 400 14px/20px system-ui, -apple-system, "PingFang SC", "Segoe UI", sans-serif; }
-  .card { width: 100%; max-width: 360px; margin: 24px; padding: 28px 24px; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
-  .loading-spinner { width: 36px; height: 36px; margin: 0 auto; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--brand); animation: spin 0.9s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  p { margin: 12px 0 0; color: var(--text-muted); }
-</style>
-<!-- 主题脚本必须放在 head 里同步执行：index.html 要先调 /api/me 再跳转，中间有一段可见的加载态，
-     不在这里读 localStorage 定主题的话，深色模式用户会先看到一帧浅色闪屏（与 login/account/setup 一致） -->
-<meta name="color-scheme" content="light dark">
-<script src="theme.js"></script>
-<script src="i18n.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Qxwk 通行证</title>
+  <link rel="icon" href="favicon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+  <script src="i18n.js"></script>
 </head>
 <body>
-  <div class="card">
-    <div class="loading-spinner" aria-hidden="true"></div>
-    <p data-i18n="index.checking">正在检查登录状态…</p>
-  </div>
-
-<script src="app.js"></script>
-<script src="index.js" defer></script>
+  <main style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center">
+    <div>
+      <p class="muted" data-i18n="common.loading">加载中…</p>
+      <p><a href="login.html">Qxwk 通行证</a></p>
+    </div>
+  </main>
+  <script src="app.js"></script>
+  <script src="index.js"></script>
 </body>
 </html>

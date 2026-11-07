@@ -1,310 +1,140 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="referrer" content="strict-origin">
-<title data-i18n="login.title">登录 - 青翔未阔工作室</title>
-<meta name="description" content="登录 Qxwk 账号通行证，一处登录，通行各站。" data-i18n-content="login.description">
-<link rel="icon" type="image/webp" href="/favicon.webp">
-<link rel="stylesheet" href="/style.css">
-<style>
-  /* ========= 登录/注册：左右分屏 ========= */
-  #authView {
-    flex: 1;
-    display: grid;
-    grid-template-columns: 60% 40%;
-    overflow: hidden;
-  }
-  /* 左侧：setup 欢迎动画承载（iframe 无缝填充，与 CityFootprint 一致） */
-  .auth-left {
-    position: relative;
-    height: 100%;
-    overflow: hidden;
-    background: #e2e2ec;
-  }
-  .setup-frame {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    display: block;
-  }
-
-  .auth-right {
-    background: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 24px;
-    overflow-y: auto;
-  }
-  .auth-form {
-    width: 100%;
-    max-width: 380px;
-    margin: 0;
-  }
-  .auth-title {
-    font-size: 1.7rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-  }
-  .auth-subtitle {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    margin-bottom: 28px;
-  }
-
-  /* ========= Tabs ========= */
-  .tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 20px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    padding: 4px;
-    border-radius: var(--radius-sm);
-  }
-  .tab {
-    flex: 1;
-    text-align: center;
-    /* 三个 tab（登录 / 邮箱注册 / 邀请码注册）比原来的两个更挤，收窄内边距与字号，
-       让「邀请码注册」在 380px 表单宽度下仍能单行放下、不换行 */
-    padding: 9px 6px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-    background: transparent;
-    border: none;
-    transition: all var(--transition);
-    font-family: inherit;
-  }
-  .tab:hover { color: var(--text-primary); }
-  .tab.active {
-    background: var(--surface);
-    color: var(--primary);
-    box-shadow: var(--shadow-sm);
-    font-weight: 600;
-  }
-
-  /* ========= 忘记密码 ========= */
-  .forgot-link { margin-top: 12px; text-align: center; }
-  .forgot-link a { color: var(--primary); font-size: 0.85rem; text-decoration: none; font-weight: 500; }
-  .forgot-link a:hover { text-decoration: underline; }
-  .forgot-link.back { margin-top: 16px; }
-  .code-row { margin-top: 2px; }
-
-  /* ========= Form ========= */
-  label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
-  input {
-    width: 100%;
-    padding: 10px 14px;
-    border: 1.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 0.9rem;
-    font-family: inherit;
-    color: var(--text-primary);
-    background: var(--surface);
-    transition: border-color var(--transition), box-shadow var(--transition);
-  }
-  input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px var(--primary-light);
-  }
-  .field { margin-bottom: 16px; }
-
-  /* ========= Buttons ========= */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    border: none;
-    border-radius: 40px;
-    padding: 11px 18px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--transition);
-    font-family: inherit;
-    text-decoration: none;
-  }
-  .btn-primary {
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    color: #fff;
-    width: 100%;
-  }
-  .btn-primary:hover {
-    background: linear-gradient(135deg, var(--primary-hover), #0f766e);
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
-  }
-  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-
-  .msg { font-size: 0.84rem; margin-top: 10px; }
-  .msg.error { color: #dc2626; }
-  .msg.ok { color: #16a34a; }
-  .hint { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 4px; }
-
-  /* ========= Footer ========= */
-  .footer {
-    background: #0f172a;
-    text-align: center;
-    padding: 14px 24px;
-    color: var(--text-tertiary);
-    font-size: 0.82rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-  .footer-copy { opacity: 0.6; }
-
-  /* ========= Responsive ========= */
-  @media (max-width: 768px) {
-    #authView { grid-template-columns: 1fr; grid-template-rows: 28vh 1fr; }
-    .auth-left { height: 100%; }
-    .auth-right { align-items: flex-start; padding: 40px 16px; }
-    .auth-form { max-width: 100%; }
-  }
-  @media (max-width: 640px) {
-    .navbar-inner { padding: 0 16px; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-  }
-</style>
-<meta name="color-scheme" content="light dark">
-<script src="theme.js"></script>
-<script src="i18n.js"></script>
-<style>
-  /* ===== 黑夜模式：主题切换按钮 ===== */
-  .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
-  .theme-toggle:hover { background:var(--primary-subtle); color:var(--primary); }
-  .theme-toggle svg { width:22px; height:22px; }
-  .theme-toggle .icon-sun { display:none; }
-  :root[data-theme="dark"] .theme-toggle .icon-sun { display:block; }
-  :root[data-theme="dark"] .theme-toggle .icon-moon { display:none; }
-
-  /* ===== 黑夜模式：深色变量 ===== */
-  :root { color-scheme: light; --primary-subtle: rgba(37,99,235,0.08); }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --primary-light: rgba(59,130,246,0.16);
-    --primary-subtle: rgba(59,130,246,0.16);
-    --surface:#1e293b; --bg:#0f172a;
-    --text-primary:#e2e8f0; --text-secondary:#94a3b8; --text-tertiary:#64748b;
-    --border:#334155; --navbar-bg:rgba(15,23,42,0.8);
-    --shadow-sm:0 1px 3px rgba(0,0,0,0.4); --shadow-md:0 4px 16px rgba(0,0,0,0.5); --shadow-lg:0 12px 40px rgba(0,0,0,0.6);
-  }
-  :root[data-theme="dark"] .footer { background:#111827; }
-
-  /* ===== 黑夜模式：页面元素覆盖 ===== */
-  :root[data-theme="dark"] .auth-right { background: var(--surface); }
-  :root[data-theme="dark"] .auth-left { background: #0f172a; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="login.title">登录 - Qxwk 通行证</title>
+  <link rel="icon" href="favicon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+  <script src="i18n.js"></script>
 </head>
 <body>
-
-<header class="navbar">
-  <div class="navbar-inner">
-    <!-- 品牌链接指向通行证主页（根路径，index.html 按登录状态分流到账号中心/登录页），
-         不是 Qxwk 工作室官网（官网入口已从顶栏移除，仅剩品牌链接一个跳转）。
-         用 "/" 而不是 "index.html"：直接命中根路径，少一次 /index.html → / 的 307 跳转 -->
-    <a href="/" class="navbar-brand">
-      <img class="brand-logo" src="/favicon.webp" alt="Qxwk 通行证">
-      <span class="brand-text"><b>Qxwk 通行证</b><span data-i18n="brand.slogan">一处登录，通行各站</span></span>
-    </a>
-    <div style="display:flex;align-items:center;gap:10px;">
-      <button class="lang-toggle" id="langToggle" type="button" aria-label="切换语言" title="切换语言" data-i18n-aria-label="common.switch_lang" data-i18n-title="common.switch_lang">EN</button>
-      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题" data-i18n-aria-label="common.switch_theme" data-i18n-title="common.switch_theme">
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </button>
+  <header class="navbar">
+    <div class="navbar-inner">
+      <a class="navbar-brand" href="/">
+        <img class="brand-logo" src="favicon.webp" alt="">
+        <span class="brand-text">
+          <b data-i18n="login.welcome">Qxwk 通行证</b>
+          <span data-i18n="common.slogan">一处登录，通行各站</span>
+        </span>
+      </a>
+      <div class="navbar-actions">
+        <button id="langToggle" class="lang-toggle" type="button" aria-label="切换语言">EN</button>
+        <button id="themeToggle" class="icon-btn" type="button" aria-label="切换主题" data-i18n-aria-label="common.theme">◐</button>
+      </div>
     </div>
-  </div>
-</header>
+  </header>
 
-<div id="authView">
-  <div class="auth-left">
-    <iframe src="setup.html" class="setup-frame" title="欢迎" data-i18n-title="common.iframe_welcome" loading="lazy"></iframe>
-  </div>
-  <div class="auth-right">
-    <div class="auth-form">
-      <h2 class="auth-title" id="authTitle">👋 欢迎回来</h2>
-      <p class="auth-subtitle" id="authSubtitle">使用 Qxwk 通行证登录，一处登录，通行各站</p>
+  <main>
+    <section class="card auth-card">
+      <h1 class="page-title" data-i18n="login.welcome">Qxwk 通行证</h1>
+      <p class="page-sub" data-i18n="login.sub">用一个通行证账号，登录所有 Qxwk 站点。</p>
 
-      <!-- 两个注册 tab 由 GET /api/config 的开关控制显隐：关掉即整块隐藏（见 login.js 末尾的 config 处理） -->
-      <div class="tabs">
-        <div class="tab active" id="tabLogin" data-action="switchTab" data-mode="login" data-i18n="login.tab_login">登录</div>
-        <div class="tab" id="tabEmailReg" data-action="switchTab" data-mode="email" data-i18n="login.tab_email_reg">邮箱注册</div>
-        <div class="tab" id="tabReg" data-action="switchTab" data-mode="reg" data-i18n="login.tab_reg">邀请码注册</div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" type="button" data-tab="password" data-i18n="login.tab_password">登录</button>
+        <button class="tab" type="button" data-tab="code" data-i18n="login.tab_code">验证码登录</button>
+        <button class="tab" type="button" data-tab="register" data-i18n="login.tab_register">注册</button>
       </div>
 
-      <form id="loginForm">
-        <div class="field"><label data-i18n="login.label_nick_email">昵称 / 邮箱</label><input id="loginNick" maxlength="100" placeholder="昵称或已绑定的邮箱" data-i18n-placeholder="login.ph_nick_email" required></div>
-        <div class="field"><label data-i18n="login.label_password">密码</label><input id="loginPass" type="password" maxlength="50" placeholder="密码" data-i18n-placeholder="login.ph_password" required></div>
-        <button class="btn btn-primary" type="submit" id="loginBtn" data-i18n="login.btn_login">登录</button>
-        <div class="forgot-link"><a href="#" data-action="showForgot" data-i18n="login.forgot_link">忘记密码？</a></div>
-        <div class="msg" id="loginMsg"></div>
-      </form>
-
-      <!-- 邮箱注册：邮箱验证码即注册凭证，注册成功即完成邮箱验证（email_verified=1）。
-           是否展示本 tab 由 GET /api/config 的 emailRegisterEnabled 决定（email_register_enabled 设置键） -->
-      <form id="emailRegForm" style="display:none;">
-        <div class="field"><label data-i18n="login.label_email">邮箱</label><input id="emailRegEmail" type="email" maxlength="100" placeholder="用于登录与找回密码的邮箱" data-i18n-placeholder="login.ph_email_reg" required></div>
-        <div class="field"><button type="button" class="btn btn-primary" id="emailRegSendBtn" data-action="sendSignupCode" data-i18n="login.btn_send_code">发送验证码</button></div>
-        <div class="code-row" id="emailRegCodeRow" style="display:none;">
-          <div class="field"><label data-i18n="login.label_code">验证码</label><input id="emailRegCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" data-i18n-placeholder="login.ph_code"></div>
-        </div>
-        <div class="field"><label data-i18n="login.label_nickname">昵称</label><input id="emailRegNick" maxlength="20" placeholder="1-20 个字符" data-i18n-placeholder="login.ph_nickname" required></div>
-        <div class="field"><label data-i18n="login.label_pass">密码</label><input id="emailRegPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" data-i18n-placeholder="login.ph_pass" required></div>
-        <div class="field"><label data-i18n="login.label_confirm">确认密码</label><input id="emailRegPass2" type="password" maxlength="50" placeholder="再输入一次" data-i18n-placeholder="login.ph_confirm" required></div>
-        <button class="btn btn-primary" type="submit" id="emailRegBtn" data-i18n="login.btn_register">注册并登录</button>
-        <div class="msg" id="emailRegMsg"></div>
-      </form>
-
-      <form id="regForm" style="display:none;">
-        <div class="field"><label data-i18n="login.label_nickname">昵称</label><input id="regNick" maxlength="20" placeholder="1-20 个字符" data-i18n-placeholder="login.ph_nickname" required></div>
-        <div class="field"><label data-i18n="login.label_pass">密码</label><input id="regPass" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" data-i18n-placeholder="login.ph_pass" required></div>
-        <div class="field"><label data-i18n="login.label_confirm">确认密码</label><input id="regPass2" type="password" maxlength="50" placeholder="再输入一次" data-i18n-placeholder="login.ph_confirm" required></div>
-        <div class="field"><label data-i18n="login.label_invite">邀请码</label><input id="regInvite" maxlength="20" required placeholder="请输入邀请码" data-i18n-placeholder="login.ph_invite" autocomplete="off"><div class="hint" data-i18n="login.hint_invite">邀请码：找已注册的朋友要一个，一个邀请码只能注册一次</div></div>
-        <button class="btn btn-primary" type="submit" id="regBtn" data-i18n="login.btn_register">注册并登录</button>
-        <div class="msg" id="regMsg"></div>
-      </form>
-
-      <form id="setPassForm" style="display:none;">
-        <div class="field"><label data-i18n="login.label_nickname">昵称</label><input id="setPassNick" maxlength="20" readonly></div>
-        <div class="field"><label data-i18n="login.label_new_password">新密码</label><input id="setPassNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" data-i18n-placeholder="login.ph_pass" required></div>
-        <div class="field"><label data-i18n="login.label_confirm_new_password">确认新密码</label><input id="setPassNew2" type="password" maxlength="50" placeholder="再输入一次" data-i18n-placeholder="login.ph_confirm" required></div>
-        <button class="btn btn-primary" type="submit" id="setPassBtn" data-i18n="login.btn_set_password">设置密码并登录</button>
-        <div class="msg" id="setPassMsg"></div>
-      </form>
-
-      <form id="forgotForm" style="display:none;">
+      <!-- 密码登录 -->
+      <form id="loginForm" data-panel="password" novalidate>
         <div class="field">
-          <label data-i18n="login.label_bound_email">绑定邮箱</label>
-          <input id="forgotEmail" type="email" maxlength="100" placeholder="你已绑定并验证的邮箱" data-i18n-placeholder="login.ph_bound_email" required>
+          <label for="loginAccount" data-i18n="login.account">昵称或邮箱</label>
+          <input class="input" id="loginAccount" name="account" autocomplete="username" data-i18n-placeholder="login.account_ph" placeholder="输入昵称或邮箱" required>
         </div>
         <div class="field">
-          <button type="button" class="btn btn-primary" id="forgotSendBtn" data-action="sendForgotCode" data-i18n="login.btn_send_reset_code">发送验证码到该邮箱</button>
+          <label for="loginPassword" data-i18n="login.password">密码</label>
+          <input class="input" id="loginPassword" name="password" type="password" autocomplete="current-password" data-i18n-placeholder="login.password_ph" placeholder="输入密码" required>
         </div>
-        <div class="code-row" id="forgotCodeRow" style="display:none;">
-          <div class="field"><label data-i18n="login.label_code">验证码</label><input id="forgotCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" data-i18n-placeholder="login.ph_code"></div>
-        </div>
-        <div class="field"><label data-i18n="login.label_new_password">新密码</label><input id="forgotNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" data-i18n-placeholder="login.ph_pass" required></div>
-        <div class="field"><label data-i18n="login.label_confirm_new_password">确认新密码</label><input id="forgotNew2" type="password" maxlength="50" placeholder="再输入一次" data-i18n-placeholder="login.ph_confirm" required></div>
-        <button class="btn btn-primary" type="submit" id="forgotBtn" data-i18n="login.btn_reset_password">重置密码并登录</button>
-        <div class="forgot-link back"><a href="#" data-action="backToLogin" data-i18n="login.back_to_login">← 返回登录</a></div>
-        <div class="msg" id="forgotMsg"></div>
+        <button class="btn btn-primary btn-block" type="submit" data-i18n="login.submit">登录</button>
+        <p class="msg" id="loginMsg"></p>
+        <p class="auth-foot">
+          <a href="#" id="forgotLink" data-i18n="login.forgot">忘记密码？</a>
+        </p>
       </form>
-    </div>
-  </div>
-</div>
 
-<footer class="footer"><div class="footer-copy" data-i18n="footer.copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
+      <!-- 邮箱验证码登录 -->
+      <form id="codeLoginForm" data-panel="code" class="hidden" novalidate>
+        <div class="field">
+          <label for="codeLoginEmail" data-i18n="login.email">邮箱</label>
+          <input class="input" id="codeLoginEmail" type="email" autocomplete="email" data-i18n-placeholder="login.email_ph" placeholder="you@example.com" required>
+        </div>
+        <div class="field">
+          <label for="codeLoginCode" data-i18n="login.code">验证码</label>
+          <div class="input-row">
+            <input class="input" id="codeLoginCode" inputmode="numeric" maxlength="6" data-i18n-placeholder="login.code_ph" placeholder="6 位数字" required>
+            <button class="btn btn-ghost" type="button" data-send="login" data-email-for="codeLoginEmail" data-i18n="common.send_code">获取验证码</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" data-i18n="login.code_login_submit">验证并登录</button>
+        <p class="msg" id="codeLoginMsg"></p>
+      </form>
 
-<script src="app.js"></script>
-<script src="login.js" defer></script>
+      <!-- 邮箱注册 -->
+      <form id="registerForm" data-panel="register" class="hidden" novalidate>
+        <div class="field">
+          <label for="regEmail" data-i18n="login.email">邮箱</label>
+          <input class="input" id="regEmail" type="email" autocomplete="email" data-i18n-placeholder="login.email_ph" placeholder="you@example.com" required>
+        </div>
+        <div class="field">
+          <label for="regCode" data-i18n="login.code">验证码</label>
+          <div class="input-row">
+            <input class="input" id="regCode" inputmode="numeric" maxlength="6" data-i18n-placeholder="login.code_ph" placeholder="6 位数字" required>
+            <button class="btn btn-ghost" type="button" data-send="register" data-email-for="regEmail" data-i18n="common.send_code">获取验证码</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="regNickname" data-i18n="login.nickname">昵称</label>
+          <input class="input" id="regNickname" autocomplete="nickname" maxlength="20" data-i18n-placeholder="login.nickname_ph" placeholder="1-20 个字符" required>
+        </div>
+        <div class="field">
+          <label for="regPassword" data-i18n="login.password">密码</label>
+          <input class="input" id="regPassword" type="password" autocomplete="new-password" data-i18n-placeholder="login.password_ph" placeholder="输入密码" required>
+        </div>
+        <div class="field">
+          <label for="regPassword2" data-i18n="login.confirm_password">确认密码</label>
+          <input class="input" id="regPassword2" type="password" autocomplete="new-password" required>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" data-i18n="login.register_submit">创建账号</button>
+        <p class="msg" id="registerMsg"></p>
+      </form>
+
+      <!-- 重置密码 -->
+      <form id="resetForm" class="hidden" novalidate>
+        <h2 data-i18n="login.reset_title">重置密码</h2>
+        <p class="muted" data-i18n="login.reset_sub">通过已绑定的邮箱重置密码。</p>
+        <div class="field">
+          <label for="resetEmail" data-i18n="login.email">邮箱</label>
+          <input class="input" id="resetEmail" type="email" autocomplete="email" data-i18n-placeholder="login.email_ph" placeholder="you@example.com" required>
+        </div>
+        <div class="field">
+          <label for="resetCode" data-i18n="login.code">验证码</label>
+          <div class="input-row">
+            <input class="input" id="resetCode" inputmode="numeric" maxlength="6" data-i18n-placeholder="login.code_ph" placeholder="6 位数字" required>
+            <button class="btn btn-ghost" type="button" data-send="reset_password" data-email-for="resetEmail" data-i18n="common.send_code">获取验证码</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="resetPassword" data-i18n="login.new_password">新密码</label>
+          <input class="input" id="resetPassword" type="password" autocomplete="new-password" required>
+        </div>
+        <div class="field">
+          <label for="resetPassword2" data-i18n="login.confirm_password">确认密码</label>
+          <input class="input" id="resetPassword2" type="password" autocomplete="new-password" required>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" data-i18n="login.reset_submit">重置密码</button>
+        <p class="msg" id="resetMsg"></p>
+        <p class="auth-foot"><a href="#" id="backLogin" data-i18n="login.back_login">返回登录</a></p>
+      </form>
+
+      <p class="small" style="margin-top:18px" data-i18n="login.hint">密码只提交给 Qxwk 通行证，不经过第三方站点。</p>
+    </section>
+  </main>
+
+  <footer data-i18n="common.copy">2026 青翔未阔工作室 · Qxwk 通行证</footer>
+
+  <script src="app.js"></script>
+  <script src="login.js"></script>
 </body>
 </html>

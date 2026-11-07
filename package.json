@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "keygen": "node scripts/gen-oidc-key.mjs",
     "migrate:local": "wrangler d1 migrations apply qxwk-account --local",
     "migrate:remote": "wrangler d1 migrations apply qxwk-account --remote"
   }

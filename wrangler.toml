@@ -1,7 +1,11 @@
 name = "qxwk-account"
-main = "src/worker.js"
+main = "src/index.js"
 compatibility_date = "2026-08-05"
 compatibility_flags = ["nodejs_compat"]
+
+# 每小时清理一次短时效数据（授权码 / 验证码 / 限流计数 / 过期会话 / 旧登录日志）
+[triggers]
+crons = ["0 * * * *"]
 
 # 关闭默认域（*.workers.dev），只保留自定义域 account.qxwkstudio.top
 # 自定义域在控制台配置（Worker → 设置 → 触发器 → 自定义域，见 README「部署指南 §6」），
