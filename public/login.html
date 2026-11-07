@@ -68,8 +68,7 @@
   .tab {
     flex: 1;
     text-align: center;
-    /* 三个 tab（登录 / 邮箱注册 / 邀请码注册）比原来的两个更挤，收窄内边距与字号，
-       让「邀请码注册」在 380px 表单宽度下仍能单行放下、不换行 */
+    /* 三个 tab（登录 / 邮箱注册 / 验证码登录）在 380px 表单宽度下保持单行 */
     padding: 9px 6px;
     border-radius: 6px;
     cursor: pointer;
@@ -272,14 +271,6 @@
         </div>
         <button class="btn btn-primary" type="submit" id="codeLoginBtn" data-i18n="login.btn_login">登录</button>
         <div class="msg" id="regMsg"></div>
-      </form>
-
-      <form id="setPassForm" style="display:none;">
-        <div class="field"><label data-i18n="login.label_nickname">昵称</label><input id="setPassNick" maxlength="20" readonly></div>
-        <div class="field"><label data-i18n="login.label_new_password">新密码</label><input id="setPassNew" type="password" minlength="4" maxlength="50" placeholder="4-50 个字符" data-i18n-placeholder="login.ph_pass" required></div>
-        <div class="field"><label data-i18n="login.label_confirm_new_password">确认新密码</label><input id="setPassNew2" type="password" maxlength="50" placeholder="再输入一次" data-i18n-placeholder="login.ph_confirm" required></div>
-        <button class="btn btn-primary" type="submit" id="setPassBtn" data-i18n="login.btn_set_password">设置密码并登录</button>
-        <div class="msg" id="setPassMsg"></div>
       </form>
 
       <form id="forgotForm" style="display:none;">

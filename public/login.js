@@ -1,7 +1,7 @@
 /* 登录/注册切换 */
-// 表单区当前模式（login 登录 / email 邮箱注册 / reg 邀请码注册），决定标题与副标题文案
+// 表单区当前模式（login 密码登录 / email 邮箱注册 / code 验证码登录），决定标题与副标题文案
 var currentAuthMode = 'login';
-// 当前视图（login / email / reg / setpass / forgot）：语言切换时据此重跑对应渲染
+// 当前视图（login / email / code / forgot）：语言切换时据此重跑对应渲染
 var currentView = 'login';
 
 /* 事件绑定：CSP 去掉 script-src 'unsafe-inline' 后内联 onclick / onsubmit 会被拦下，
@@ -23,12 +23,10 @@ document.addEventListener('click', function (e) {
   if (fn) fn(el.dataset, el);
 });
 
-/* 表单提交：原 onsubmit="return doLogin(event)" 等，改为直接绑 submit 事件；
-   doLogin / doRegister / doEmailRegister / doSetPassword / doForgotReset 内部首行即 e.preventDefault()，与原来 return false 行为等价 */
+/* 表单提交：改为直接绑 submit 事件；各 handler 内部首行即 e.preventDefault() */
 document.getElementById('loginForm').addEventListener('submit', doLogin);
 document.getElementById('emailRegForm').addEventListener('submit', doEmailRegister);
 document.getElementById('regForm').addEventListener('submit', doCodeLogin);
-document.getElementById('setPassForm').addEventListener('submit', doSetPassword);
 document.getElementById('forgotForm').addEventListener('submit', doForgotReset);
 
 function switchTab(mode) {
@@ -50,7 +48,6 @@ function renderAuthHeader() {
     login: ['login.welcome_title', 'login.welcome_subtitle'],
     email: ['login.email_reg_title', 'login.email_reg_subtitle'],
     code: ['login.code_login_title', 'login.code_login_subtitle'],
-    setpass: ['login.set_password_title', 'login.set_password_subtitle'],
     forgot: ['login.forgot_title', 'login.forgot_subtitle'],
   };
   var keys = TITLES[currentView] || TITLES.login;
@@ -199,47 +196,6 @@ async function doEmailRegister(e) {
   return false;
 }
 
-/* 切换到"设置密码"视图（账号密码哈希为空时）：隐藏 tabs + 各注册/登录表单，显示设密码表单 */
-function showSetPassForm(nick) {
-  currentView = 'setpass';
-  resetAuthView();
-  document.getElementById('setPassForm').style.display = '';
-  document.getElementById('setPassNick').value = nick || '';
-  document.getElementById('setPassNew').value = '';
-  document.getElementById('setPassNew2').value = '';
-  renderAuthHeader();
-  var btn = document.getElementById('loginBtn'); if (btn) btn.disabled = false;
-  var msg = document.getElementById('setPassMsg');
-  msg.className = 'msg'; msg.textContent = '';
-  document.getElementById('setPassNew').focus();
-}
-
-/* 设置密码（账号哈希为空时首次设置）：走 /api/login 并带上 new_password，后端判定空哈希账号后设密并签发会话 */
-async function doSetPassword(e) {
-  e.preventDefault();
-  var msg = document.getElementById('setPassMsg');
-  var btn = document.getElementById('setPassBtn');
-  msg.className = 'msg error';
-  var p1 = document.getElementById('setPassNew').value;
-  var p2 = document.getElementById('setPassNew2').value;
-  if (p1 !== p2) { msg.textContent = t('common.err_password_mismatch'); return false; }
-  btn.disabled = true;
-  msg.textContent = t('login.msg_setting');
-  try {
-    var data = await api('/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        nickname: document.getElementById('setPassNick').value.trim(),
-        new_password: p1,
-      }),
-    });
-    msg.className = 'msg ok';
-    msg.textContent = t('login.msg_set_ok');
-    applySession(data);
-  } catch (err) { msg.textContent = err.message; btn.disabled = false; }
-  return false;
-}
-
 /* ---------- 忘记密码 ---------- */
 
 /* 进入「忘记密码」视图：隐藏 tabs + 其他表单，显示忘记密码表单 */
@@ -258,13 +214,12 @@ function backToLogin() {
   switchTab('login');
 }
 
-/* 统一重置：隐藏 tabs 与所有表单（登录/邮箱注册/邀请码注册/设密码/忘记密码） */
+/* 统一重置：隐藏 tabs 与所有表单（登录 / 邮箱注册 / 验证码登录 / 忘记密码） */
 function resetAuthView() {
   document.querySelector('.tabs').style.display = 'none';
   document.getElementById('loginForm').style.display = 'none';
   document.getElementById('emailRegForm').style.display = 'none';
   document.getElementById('regForm').style.display = 'none';
-  document.getElementById('setPassForm').style.display = 'none';
   document.getElementById('forgotForm').style.display = 'none';
 }
 
@@ -339,9 +294,8 @@ async function doForgotReset(e) {
   } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   return false;
 }
-/* 两个注册开关：关掉即把整个 tab 连同表单一起隐藏（统一处理，不再留「注册已暂停」的提示 + 禁用按钮）。
-   隐藏只是不给死路，真正的拦截在后端（/api/register 与 /api/register/email 各自校验开关）；
-   生成邀请码开关作用于账号中心取码（见 account.js），不在登录页体现 */
+/* 注册开关：关掉即把邮箱注册 tab 连同表单一起隐藏；真正的拦截在后端
+   （/api/auth/email/send 与 /api/auth/email/verify 的 register 分支） */
 fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
   if (!cfg) return;
   if (cfg.registerEnabled === false) {
@@ -356,8 +310,8 @@ renderAuthHeader();
 
 /* 语言切换：重跑当前视图的标题/副标题，并重绘正在跑的倒计时按钮文案 */
 onChange(function () {
-  if (currentView === 'setpass' || currentView === 'forgot') {
-    renderAuthHeader();   // 设密码 / 忘记密码视图：只重绘标题，不重跑 show（避免清空已输入的密码）
+  if (currentView === 'forgot') {
+    renderAuthHeader();
   } else {
     switchTab(currentView);
   }

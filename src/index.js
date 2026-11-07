@@ -477,6 +477,9 @@ async function handleApi(request, env, url) {
     if (!SENDABLE_PURPOSES.has(purpose)) return error('不支持的用途', 400, 'invalid_purpose');
     if (!isValidEmail(email)) return error('请输入正确的邮箱地址', 400, 'invalid_email');
     if (isTempEmail(email)) return error('不支持临时邮箱，请使用常用邮箱', 400, 'temp_email_not_allowed');
+    if (purpose === 'register' && (await getSetting(DB, 'email_register_enabled', '1')) !== '1') {
+      return error('注册已暂停，暂不接受新注册', 403, 'register_paused');
+    }
 
     const ipKey = clientIp(request) ? `otp:send:ip:${clientIp(request)}` : '';
     if (ipKey) {
@@ -521,6 +524,9 @@ async function handleApi(request, env, url) {
     if (!SENDABLE_PURPOSES.has(purpose)) return error('不支持的用途', 400, 'invalid_purpose');
     if (!isValidEmail(email)) return error('请输入正确的邮箱地址', 400, 'invalid_email');
     if (!code) return error('请输入验证码', 400, 'code_required');
+    if (purpose === 'register' && (await getSetting(DB, 'email_register_enabled', '1')) !== '1') {
+      return error('注册已暂停，暂不接受新注册', 403, 'register_paused');
+    }
 
     const hit = await bump(DB, `otp:verify:${email}:${purpose}`, 5, 900);
     if (!hit.ok) return tooMany(hit.retryAfter);

@@ -63,8 +63,6 @@ let selectedColor = null;
 // 注册日期原始值：解析成功存 Date，失败存原始串；fmtRegDate() 据此按语言格式化
 window._regDate = null;
 window._regRaw = '';
-// 邀请码卡最近一次渲染状态（浏览器语言切换时按此重绘，不再重新请求，避免凭空生成邀请码）
-var inviteView = null;
 // 发码按钮倒计时状态（语言切换时重绘按钮文案）
 var countdownEl = null, countdownLeft = 0, countdownDone = false;
 
@@ -366,59 +364,6 @@ async function saveProfile() {
   }
 }
 
-// 点击"生成邀请码"：有未使用码直接显示，无则生成（一码制，防止生成过多）
-async function loadInviteCode() {
-  const codeEl = document.getElementById('inviteCodeText');
-  const copyBtn = document.getElementById('copyInviteBtn');
-  if (!codeEl) return;
-  codeEl.textContent = t('common.loading');
-  if (copyBtn) copyBtn.disabled = true;
-  try {
-    const data = await api('/invite-code');
-    if (data && data.paused) {
-      inviteView = { key: 'account.invite_paused', hintKey: 'account.invite_paused_hint' };
-    } else if (data && data.need_email_verify) {
-      // 未绑定/未验证邮箱：服务端只在「生成新码」这一步拦，已有未使用码会照常返回（见 worker.js）
-      inviteView = { key: 'account.invite_need_verify', hintKey: 'account.invite_need_verify_hint' };
-    } else if (data && data.code) {
-      inviteView = { code: data.code, hintKey: 'account.invite_hint' };
-    } else {
-      inviteView = { key: 'account.invite_none', hintKey: 'account.invite_none_hint' };
-    }
-  } catch (err) {
-    inviteView = { key: 'account.invite_failed' };
-  }
-  renderInvite();
-}
-
-// 按 inviteView 重绘邀请码区（语言切换时也调用，避免重新请求凭空生成邀请码）
-function renderInvite() {
-  var codeEl = document.getElementById('inviteCodeText');
-  var copyBtn = document.getElementById('copyInviteBtn');
-  var hintEl = document.getElementById('inviteHint');
-  if (!codeEl || !inviteView) return;
-  if (inviteView.code) {
-    codeEl.textContent = inviteView.code;
-    if (copyBtn) copyBtn.disabled = false;
-  } else {
-    codeEl.textContent = t(inviteView.key);
-    if (copyBtn) copyBtn.disabled = true;
-  }
-  if (hintEl && inviteView.hintKey) hintEl.textContent = t(inviteView.hintKey);
-}
-
-// 复制邀请码
-function copyInviteCode() {
-  const codeEl = document.getElementById('inviteCodeText');
-  const text = codeEl.textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = document.getElementById('copyInviteBtn');
-    const old = btn.textContent;
-    btn.textContent = t('account.copied');
-    setTimeout(() => { btn.textContent = old; }, 1500);
-  }).catch(() => alert(t('account.copy_failed')));
-}
-
 // 折叠卡：点击标题展开/收起
 function toggleCard(id) {
   document.getElementById(id).classList.toggle('open');
@@ -462,8 +407,7 @@ async function changePassword() {
   }
 }
 
-// 登录设备：只列「直连登录」的会话（服务端已过滤 client_id 为空的行，并解析 UA 成「系统 · 浏览器」）
-// 从第三方站点带来源标识登录的会话归「已授权网站」卡，不在这里重复出现
+// 登录设备：服务端返回 qx_session 会话，UA 已解析成「系统 · 浏览器」
 async function loadSessions() {
   var list = document.getElementById('sessionList');
   if (!list) return;
@@ -517,12 +461,8 @@ async function revokeOtherSessions() {
   }
 }
 
-// 已授权网站：服务端按来源聚合出「本账号在这些站点/应用各有几处登录」
-// 覆盖「不是在本站直接登录」的全部会话：已登记站点（有站点名/origin）+ 未登记来源（名字是调用方
-// 自报的原始串，服务端给 unregistered=true，这里标成「未登记来源」）+ 已移出白名单的站点（「已移除的站点」）
-// 每个来源只有「注销登录」一个动作：一次撤销本账号在该来源的**全部会话**（该处需重新登录）。
-// 不提供逐台设备下线 —— 来源是用户能理解的最小单位，逐台下线在「这是谁的登录」上说不清
-// 在本站直接登录的设备（来源两列皆空）归「登录设备」卡，两张卡不重不漏
+// 已授权应用：数据来自 oauth_grants（user_id × client_id）
+// revoked = 用户撤销过；撤销后下次 /authorize 会出确认页，重新授权后才恢复
 async function loadClients() {
   var list = document.getElementById('clientList');
   if (!list) return;
@@ -597,8 +537,6 @@ var ACTIONS = {
   verifyEmailCode: function () { verifyEmailCode(); },
   toggleCard: function (ds) { toggleCard(ds.card); },
   changePassword: function () { changePassword(); },
-  copyInviteCode: function () { copyInviteCode(); },
-  loadInviteCode: function () { loadInviteCode(); },
   revokeOtherSessions: function () { revokeOtherSessions(); },
   // id 是 UUID 字符串，直接透传，不能 Number()
   revokeSession: function (ds, el) { revokeSession(el.dataset.id); },
@@ -658,7 +596,6 @@ onChange(function () {
     refreshEmailStatus();              // 邮箱状态徽标（重新拉取 /me）
     loadSessions();                    // 登录设备列表
     loadClients();                     // 已授权网站列表
-    renderInvite();                    // 邀请码区（按最近一次状态重绘，不重新请求）
     renderCountdown();                 // 发码按钮倒计时文案
   }
   refreshMsgs();                       // 已显示的 msg

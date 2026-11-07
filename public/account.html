@@ -142,20 +142,6 @@
   }
   .user-color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); flex-shrink: 0; }
 
-  /* 邀请码栏 */
-  .invite-code-row { display: flex; align-items: center; gap: 10px; }
-  .invite-code {
-    flex: 1;
-    font-size: 1.05rem;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: var(--primary);
-    background: var(--primary-light);
-    border: 1px dashed rgba(37, 99, 235, 0.4);
-    border-radius: var(--radius-sm);
-    padding: 10px 14px;
-    text-align: center;
-  }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .empty { text-align: center; color: var(--text-tertiary); font-size: 0.84rem; padding: 14px 0; }
@@ -685,17 +671,6 @@
       </div>
 
       <div class="personal-col">
-        <!-- 邀请好友 -->
-        <div class="card" id="inviteCodeCard" style="display:none;">
-          <h3 data-i18n="account.invite_title">🎫 邀请好友</h3>
-          <div class="invite-code-row">
-            <code id="inviteCodeText" class="invite-code">点击下方按钮获取</code>
-            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" data-action="copyInviteCode" disabled data-i18n="account.btn_copy">复制</button>
-          </div>
-          <div class="hint" id="inviteHint" style="margin:8px 0 0;">分享给朋友注册用，一个码只能注册一次</div>
-          <button class="btn btn-primary" id="generateInviteBtn" data-action="loadInviteCode" style="margin-top:14px;" data-i18n="account.btn_generate">生成邀请码</button>
-        </div>
-
         <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线） -->
         <div class="card" id="sessionCard">
           <div class="card-title-row">
@@ -706,9 +681,7 @@
           <div class="msg" id="sessionMsg"></div>
         </div>
 
-        <!-- 已授权网站（账号中心里「不是在通行证本站直接登录」的会话全归这里，可整来源注销；
-             数据来自 sessions.client_id（已登记站点）+ sessions.client_label（未登记来源）+
-             apps 里已查不到的 client_id（标「已移除的站点」）） -->
+        <!-- 已授权应用：数据来自 oauth_grants（用户 × OIDC 客户端）；撤销后下次授权需确认 -->
         <div class="card" id="clientCard">
           <div class="card-title-row">
             <h3 data-i18n="account.client_title">🌐 已授权网站</h3>

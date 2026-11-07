@@ -166,23 +166,7 @@ npx.cmd wrangler d1 migrations apply qxwk-account-v2 --remote
 npx.cmd wrangler deploy
 ```
 
-### 场景 B：迁移线上旧库
-
-```powershell
-# 1. 先导出
-npx.cmd wrangler d1 export qxwk-account --remote --output=backup-before-oidc.sql
-
-# 2. 执行仓库外的一次性迁移（旧表改名为 *_old、复制 users/settings、标记迁移已应用）
-npx.cmd wrangler d1 execute qxwk-account --remote --file="C:\Code\Qxwk-Account-迁移\0002_oidc.sql"
-
-# 3. 部署新代码
-npx.cmd wrangler deploy
-```
-
-旧表全部保留为 `users_old`、`sessions_old`、`apps_old` 等，确认无误后可自行删除。
-旧 `sessions` / `email_codes` / `rate_limit` / `login_attempts` / `invite_codes` 不导入，旧会话全部失效，所有用户重新登录。
-
-### 场景 C：登记客户端
+### 场景 B：登记客户端
 
 ```sql
 -- 浏览器 OIDC 客户端（public + PKCE）
@@ -212,13 +196,6 @@ VALUES ('travel-worker', '<上一步的 sha256>', 'City Footprint Worker',
 - 过期授权码、过期验证码、过期限流计数
 - 过期或已撤销超过 7 天的会话
 - 90 天前的登录日志
-
-## 🧹 从旧版删除的东西
-
-- 旧 Bearer 接口：`/api/verify`、token 版 `/api/login`、`/api/invite-code`、`/api/login-log`
-- 邀请码整套（表、生成、卡片、两个设置开关）
-- 前端 localStorage token；登录态改为 HttpOnly Cookie
-- `apps` 来源白名单（改为 `oauth_clients` / `oauth_grants`）
 
 ---
 
