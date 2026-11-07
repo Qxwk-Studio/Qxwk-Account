@@ -68,7 +68,7 @@
   .tab {
     flex: 1;
     text-align: center;
-    /* 三个 tab（登录 / 邮箱注册 / 验证码登录）在 380px 表单宽度下保持单行 */
+    /* 三个 tab（密码登录 / 验证码登录 / 注册账号）在 380px 表单宽度下保持单行 */
     padding: 9px 6px;
     border-radius: 6px;
     cursor: pointer;
@@ -233,11 +233,11 @@
       <h2 class="auth-title" id="authTitle">👋 欢迎回来</h2>
       <p class="auth-subtitle" id="authSubtitle">使用 Qxwk 通行证登录，一处登录，通行各站</p>
 
-      <!-- 三个 tab：密码登录 / 邮箱注册 / 邮箱验证码登录 -->
+      <!-- 三个 tab：密码登录 / 验证码登录 / 注册账号 -->
       <div class="tabs">
-        <div class="tab active" id="tabLogin" data-action="switchTab" data-mode="login" data-i18n="login.tab_login">登录</div>
-        <div class="tab" id="tabEmailReg" data-action="switchTab" data-mode="email" data-i18n="login.tab_email_reg">邮箱注册</div>
+        <div class="tab active" id="tabLogin" data-action="switchTab" data-mode="login" data-i18n="login.tab_login">密码登录</div>
         <div class="tab" id="tabReg" data-action="switchTab" data-mode="code" data-i18n="login.tab_code">验证码登录</div>
+        <div class="tab" id="tabEmailReg" data-action="switchTab" data-mode="email" data-i18n="login.tab_email_reg">注册账号</div>
       </div>
 
       <form id="loginForm">

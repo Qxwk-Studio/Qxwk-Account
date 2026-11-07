@@ -43,8 +43,8 @@
       // ---- 登录页：静态文案 ----
       'login.title': '登录 - 青翔未阔工作室',
       'login.description': '登录 Qxwk 账号通行证，一处登录，通行各站。',
-      'login.tab_login': '登录',
-      'login.tab_email_reg': '邮箱注册',
+      'login.tab_login': '密码登录',
+      'login.tab_email_reg': '注册账号',
       'login.tab_code': '验证码登录',
       'login.code_login_title': '📧 验证码登录',
       'login.code_login_subtitle': '用已绑定并验证的邮箱收验证码，免密码登录',
@@ -77,7 +77,7 @@
       // ---- 登录页：JS 动态文案（login.js 调用，经 onChange 重渲染）----
       'login.welcome_title': '👋 欢迎回来',
       'login.welcome_subtitle': '使用 Qxwk 通行证登录，一处登录，通行各站',
-      'login.email_reg_title': '📮 邮箱注册',
+      'login.email_reg_title': '📮 注册账号',
       'login.email_reg_subtitle': '用邮箱验证码注册一个通行证账号，注册后邮箱即为已验证',
       'login.forgot_title': '🔑 忘记密码',
       'login.btn_reset_password': '重置密码',
@@ -248,9 +248,9 @@
       // ---- login page: static ----
       'login.title': 'Sign in - 青翔未阔工作室',
       'login.description': 'Sign in to your Qxwk account pass — one login, all sites.',
-      'login.tab_login': 'Sign in',
-      'login.tab_email_reg': 'Email sign-up',
-      'login.tab_code': 'Email code',
+      'login.tab_login': 'Password',
+      'login.tab_email_reg': 'Create account',
+      'login.tab_code': 'Code sign-in',
       'login.code_login_title': '📧 Email code sign-in',
       'login.code_login_subtitle': 'Get a code from your verified email, no password needed',
       'login.ph_email_login': 'Your verified email',
@@ -282,7 +282,7 @@
       // ---- login page: dynamic ----
       'login.welcome_title': '👋 Welcome back',
       'login.welcome_subtitle': 'Sign in with your Qxwk account pass — one login, all sites',
-      'login.email_reg_title': '📮 Email sign-up',
+      'login.email_reg_title': '📮 Create account',
       'login.email_reg_subtitle': 'Sign up for an account with an email verification code; your email becomes verified upon sign-up',
       'login.btn_reset_password': 'Reset password',
       'login.forgot_title': '🔑 Forgot password',
