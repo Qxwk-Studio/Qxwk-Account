@@ -1,157 +1,741 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title data-i18n="account.title">账号中心 - Qxwk 通行证</title>
-  <link rel="icon" href="favicon.webp" type="image/webp">
-  <link rel="stylesheet" href="style.css">
-  <script src="theme.js"></script>
-  <script src="i18n.js"></script>
-  <style>
-    .card h3 { font-size: .88rem; font-weight: 600; margin: 18px 0 10px; }
-    .card hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="strict-origin">
+<title data-i18n="account.title">账号中心 - 青翔未阔工作室</title>
+<meta name="description" content="Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与已授权网站。" data-i18n-content="account.description">
+<link rel="icon" type="image/webp" href="/favicon.webp">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* ========= 未登录：左右分屏（同 login 页风格） ========= */
+  #authView {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 60% 40%;
+    overflow: hidden;
+  }
+  .auth-left {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    background: #e2e2ec;
+  }
+  .setup-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+  .auth-right {
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+  }
+  .auth-form {
+    width: 100%;
+    max-width: 380px;
+    margin: 0;
+  }
+  .auth-title {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .auth-subtitle {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 28px;
+  }
+
+  /* ========= 加载中：校验会话时的过渡界面 ========= */
+  .loading-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+  }
+  .loading-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ========= 已登录：主内容区 =========
+     类名**不能**叫 .main：会话行左半块也是 <div class="main">（account.js 动态生成），
+     用同一个选择器会让页面级的这套 padding 顺带打到每一行上（.session-item > .main 只覆盖
+     flex / min-width，不覆盖 padding），卡片里就凭空多出上 36 下 60 的留白 */
+  .page-main { flex: 1; padding: 36px 24px 60px; }
+  .container { max-width: var(--container); margin: 0 auto; }
+  .page-header { display: flex; align-items: center; margin-bottom: 28px; }
+  .page-header h1 { font-size: clamp(1.4rem, 3vw, 1.8rem); font-weight: 700; color: var(--text-primary); }
+
+  /* ========= Card ========= */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card h3 { font-size: 1.02rem; font-weight: 600; margin-bottom: 16px; }
+
+  /* 个人中心双列布局 */
+  .personal-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .personal-col { display: flex; flex-direction: column; gap: 20px; }
+  .personal-col .card { margin-bottom: 0; }
+
+  /* 主卡：个人资料 */
+  #profileCard {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--user-color, #2563eb) 15%, #ffffff), var(--surface) 80%);
+    border-color: color-mix(in srgb, var(--user-color, #2563eb) 22%, #e2e8f0);
+    padding: 28px;
+  }
+  .profile-head { display: flex; align-items: flex-start; gap: 18px; }
+  .profile-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
+    flex-shrink: 0;
+    overflow: hidden;
+    background: var(--bg);
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(0, 0, 0, 0.08);
+    /* 文字头像回退样式：img 由下方规则撑满，不受影响 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+  .profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .profile-info { flex: 1; min-width: 0; }
+  .profile-name { font-size: 1.5rem; font-weight: 700; margin-bottom: 6px; }
+  .profile-meta { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 4px; }
+  .user-uid { font-family: 'Consolas', 'Courier New', monospace; font-size: 0.86rem; color: var(--text-tertiary); }
+  .user-regtime { font-size: 0.78rem; color: var(--text-tertiary); }
+  .profile-color {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .user-color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--border); flex-shrink: 0; }
+
+  /* 邀请码栏 */
+  .invite-code-row { display: flex; align-items: center; gap: 10px; }
+  .invite-code {
+    flex: 1;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--primary);
+    background: var(--primary-light);
+    border: 1px dashed rgba(37, 99, 235, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .empty { text-align: center; color: var(--text-tertiary); font-size: 0.84rem; padding: 14px 0; }
+
+  /* ========= 会话行：两张卡（登录设备 / 已授权网站）共用同一套结构 =========
+     统一形状 = 左 .main（第一行 .dev 设备或站点名，第二行 .meta 灰字说明）+ 右按钮或徽章，
+     两张卡因此行高、分隔线、按钮位置一致；窄屏靠 .main 的 min-width:0 与 overflow-wrap 换行而不溢出
+     注：这里的 .main 是**行内左块**（子选择器 .session-item > .main 限定），与页面主内容区无关 ——
+     页面主内容区已改名 .page-main，正是为了避免两者撞名、让页面 padding 漏进每一行 */
+  .card-title-row .push-right { margin-left: auto; }
+  .session-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .session-item:last-child { border-bottom: none; }
+  .session-item > .main { min-width: 0; flex: 1; }
+  .session-item .dev { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 0.9rem; overflow-wrap: anywhere; }
+  .session-item .dev .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); flex-shrink: 0; }
+  .session-item.current .dev .dot { background: var(--primary); }
+  .session-item .meta { font-size: 0.76rem; color: var(--text-tertiary); margin-top: 3px; overflow-wrap: anywhere; }
+  .session-item .time { color: var(--text-tertiary); font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+  .session-item .btn-sm, .session-item .badge-current { flex-shrink: 0; }
+  .badge-current { font-size: 0.72rem; font-weight: 600; color: var(--primary); background: var(--primary-light); padding: 2px 10px; border-radius: 40px; white-space: nowrap; }
+
+  /* ========= Profile Form（修改个人资料） ========= */
+  label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+  input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--surface);
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+  }
+  input[disabled] {
+    background: var(--bg);
+    color: var(--text-tertiary);
+    cursor: not-allowed;
+    border-color: var(--border);
+  }
+  .field { margin-bottom: 16px; }
+  .hint { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 4px; }
+
+  /* ========= 邮箱验证 ========= */
+  .card-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .card-title-row h3 { margin: 0; }
+  .card-subtitle { font-size: 0.82rem; color: var(--text-secondary); margin: -8px 0 14px; }
+  .email-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 40px;
+  }
+  .email-status .pulse { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .email-status.ok { color: #15803d; background: rgba(22, 163, 74, 0.1); }
+  .email-status.ok .pulse { background: #16a34a; }
+  .email-status.pending { color: #b45309; background: rgba(217, 119, 6, 0.1); }
+  .email-status.pending .pulse { background: #d97706; }
+  .email-status.empty { color: var(--text-tertiary); background: var(--bg); }
+  .email-status.empty .pulse { background: var(--text-tertiary); }
+  :root[data-theme="dark"] .email-status.ok { color: #86efac; background: rgba(34, 197, 94, 0.16); }
+  :root[data-theme="dark"] .email-status.pending { color: #fcd34d; background: rgba(245, 158, 11, 0.16); }
+  .code-row { display: none; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .code-row.show { display: flex; }
+  .code-row input { width: 100%; }
+  .code-row .btn { width: 100%; }
+
+  /* ========= 修改个人资料：不可折叠 ========= */
+  .card-profile-edit > .profile-edit-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0 16px;
+    font-size: 1.02rem;
+    font-weight: 600;
+  }
+  .profile-edit-body {
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ========= 折叠卡（重置密码等，默认收起） ========= */
+  .card-collapse > .collapse-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 0;
+  }
+  .card-collapse > .collapse-title h3 { margin: 0; }
+  .card-collapse .collapse-title .chevron { color: var(--text-tertiary); transition: transform var(--transition); }
+  .card-collapse.open .collapse-title .chevron { transform: rotate(180deg); }
+  .card-collapse > .collapse-body {
+    display: none;
+    padding-top: 16px;
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .card-collapse.open > .collapse-body { display: block; }
+
+  /* ========= 专属颜色：弹出调色板 ========= */
+  .color-field { position: relative; }
+  .color-trigger {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color var(--transition), box-shadow var(--transition);
+  }
+  .color-trigger:hover { border-color: var(--primary); }
+  .color-trigger:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+  .color-trigger .color-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px var(--border);
+    flex-shrink: 0;
+  }
+  .color-trigger .color-trigger-text { flex: 1; text-align: left; color: var(--text-secondary); }
+  .color-trigger .chevron.small { color: var(--text-tertiary); transition: transform var(--transition); }
+  .color-trigger.open .chevron.small { transform: rotate(180deg); }
+  .color-trigger:focus { outline: none; }
+
+  /* 弹出浮层 */
+  .color-menu {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 30;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 14px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .color-field.open .color-menu { display: block; }
+  .color-menu-title {
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+    font-weight: 500;
+  }
+  .color-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 8px;
+  }
+  .swatch {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    position: relative;
+    transition: transform var(--transition), border-color var(--transition), opacity var(--transition);
+    box-shadow: var(--shadow-sm);
+    touch-action: manipulation;
+  }
+  .swatch:hover { transform: scale(1.12); }
+  .swatch.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px var(--primary), 0 3px 10px rgba(0, 0, 0, 0.18);
+    transform: scale(1.1);
+  }
+  .swatch.active::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  /* ========= Buttons ========= */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+    border-radius: 40px;
+    padding: 11px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: inherit;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    width: 100%;
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, var(--primary-hover), #0f766e);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: var(--bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--border); color: var(--text-primary); }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 6px; }
+  .msg { font-size: 0.84rem; margin-top: 10px; }
+
+  /* ========= 退出登录：大卡片 ========= */
+  .card-logout {
+    text-align: center;
+    background:
+      radial-gradient(120% 100% at 50% 0%, rgba(220, 38, 38, 0.08) 0%, rgba(220, 38, 38, 0) 60%),
+      var(--surface);
+    border: 1px solid #fecaca;
+    border-radius: var(--radius-md);
+    padding: 32px 26px;
+  }
+  .card-logout h3 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+  .card-logout .logout-tip {
+    text-align: center;
+    padding: 0 0 20px;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .btn-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 11px 18px;
+    border: none;
+    border-radius: 40px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    transition: all var(--transition);
+  }
+  .btn-logout:hover {
+    background: linear-gradient(135deg, #f87171, #ef4444);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-logout:active { transform: translateY(0) scale(0.98); }
+  .btn-logout svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .msg.error { color: #dc2626; }
+  .msg.ok { color: #16a34a; }
+
+  /* ========= Footer ========= */
+  .footer {
+    background: #0f172a;
+    text-align: center;
+    padding: 14px 24px;
+    color: var(--text-tertiary);
+    font-size: 0.82rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .footer-copy { opacity: 0.6; }
+
+  /* ========= Responsive ========= */
+  @media (max-width: 768px) {
+    .personal-layout { grid-template-columns: 1fr; }
+    #authView { grid-template-columns: 1fr; grid-template-rows: 28vh 1fr; }
+    .auth-left { height: 100%; }
+    .auth-right { align-items: flex-start; padding: 40px 16px; }
+    .auth-form { max-width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .navbar-inner { padding: 0 16px; }
+    .page-main { padding: 24px 16px 40px; }
+    .card { padding: 18px; }
+    .profile-head { gap: 12px; }
+    /* 窄屏放不下「标题 + 右侧批量操作按钮」时让它换行，而不是把按钮挤出卡片 */
+    .card-title-row { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+<meta name="color-scheme" content="light dark">
+<script src="theme.js"></script>
+<script src="i18n.js"></script>
+<style>
+  /* ===== 黑夜模式：主题切换按钮 ===== */
+  .theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; background:none; border:none; border-radius:50%; color:var(--text-primary); cursor:pointer; transition:background var(--transition), color var(--transition); position:relative; z-index:5; touch-action:manipulation; }
+  .theme-toggle:hover { background:var(--primary-subtle); color:var(--primary); }
+  .theme-toggle svg { width:22px; height:22px; }
+  .theme-toggle .icon-sun { display:none; }
+  :root[data-theme="dark"] .theme-toggle .icon-sun { display:block; }
+  :root[data-theme="dark"] .theme-toggle .icon-moon { display:none; }
+
+  /* ===== 黑夜模式：深色变量 ===== */
+  :root { color-scheme: light; --primary-subtle: rgba(37,99,235,0.08); }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --primary-light: rgba(59,130,246,0.16);
+    --primary-subtle: rgba(59,130,246,0.16);
+    --surface:#1e293b; --bg:#0f172a;
+    --text-primary:#e2e8f0; --text-secondary:#94a3b8; --text-tertiary:#64748b;
+    --border:#334155; --navbar-bg:rgba(15,23,42,0.8);
+    --shadow-sm:0 1px 3px rgba(0,0,0,0.4); --shadow-md:0 4px 16px rgba(0,0,0,0.5); --shadow-lg:0 12px 40px rgba(0,0,0,0.6);
+  }
+  :root[data-theme="dark"] .footer { background:#111827; }
+
+  /* ===== 黑夜模式：页面元素覆盖 ===== */
+  :root[data-theme="dark"] .auth-right { background: var(--surface); }
+  :root[data-theme="dark"] .auth-left { background: #0f172a; }
+  :root[data-theme="dark"] #profileCard {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--user-color, #2563eb) 18%, #0f172a), var(--surface) 80%);
+    border-color: color-mix(in srgb, var(--user-color, #2563eb) 28%, #334155);
+  }
+  :root[data-theme="dark"] .user-color-dot { border-color: #0f172a; }
+
+  /* ===== 黑夜模式：修改资料表单 + 色板 + 退出卡 ===== */
+  :root[data-theme="dark"] input { background: var(--surface); color: var(--text-primary); }
+  :root[data-theme="dark"] input[disabled] { background: rgba(15,23,42,0.5); color: var(--text-tertiary); }
+  :root[data-theme="dark"] .color-trigger { background: var(--surface); }
+  :root[data-theme="dark"] .color-trigger .color-dot { border-color: #0f172a; }
+  :root[data-theme="dark"] .color-menu { background: var(--surface); }
+  :root[data-theme="dark"] .swatch.active { border-color: #0f172a; box-shadow: 0 0 0 2px var(--primary), 0 3px 12px rgba(0,0,0,0.5); }
+  :root[data-theme="dark"] .card-logout {
+    background:
+      radial-gradient(120% 100% at 50% 0%, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0) 60%),
+      var(--surface);
+    border-color: rgba(239,68,68,0.35);
+  }
+  :root[data-theme="dark"] .card-logout h3 { color: var(--text-primary); }
+</style>
 </head>
 <body>
-  <header class="navbar">
-    <div class="navbar-inner">
-      <a class="navbar-brand" href="/">
-        <img class="brand-logo" src="favicon.webp" alt="">
-        <span class="brand-text">
-          <b data-i18n="login.welcome">Qxwk 通行证</b>
-          <span data-i18n="common.slogan">一处登录，通行各站</span>
-        </span>
-      </a>
-      <div class="navbar-actions">
-        <button id="langToggle" class="lang-toggle" type="button" aria-label="切换语言">EN</button>
-        <button id="themeToggle" class="icon-btn" type="button" aria-label="切换主题" data-i18n-aria-label="common.theme">◐</button>
-        <button id="logoutBtn" class="btn btn-ghost btn-sm" type="button" data-i18n="common.logout">退出登录</button>
-      </div>
+
+<header class="navbar">
+  <div class="navbar-inner">
+    <!-- 品牌链接指向通行证主页（即本站根路径，index.html 会按登录状态分流到账号中心/登录页），
+         不是 Qxwk 工作室官网（官网入口已从顶栏移除，仅剩品牌链接一个跳转） -->
+    <a href="/" class="navbar-brand">
+      <img class="brand-logo" src="/favicon.webp" alt="Qxwk 通行证">
+      <span class="brand-text"><b>Qxwk 通行证</b><span data-i18n="brand.slogan">一处登录，通行各站</span></span>
+    </a>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="lang-toggle" id="langToggle" type="button" aria-label="切换语言" title="切换语言" data-i18n-aria-label="common.switch_lang" data-i18n-title="common.switch_lang">EN</button>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换主题" title="切换主题" data-i18n-aria-label="common.switch_theme" data-i18n-title="common.switch_theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
     </div>
-  </header>
+  </div>
+</header>
 
-  <main>
-    <h1 class="page-title" data-i18n="login.welcome">Qxwk 通行证</h1>
-    <p class="page-sub" data-i18n="account.sub">管理你的通行证资料、安全设置与授权。</p>
+<!-- 加载中：默认显示，校验本地会话后切换（避免已登录用户先看到"未登录"界面） -->
+<div class="loading-view" id="loadingView">
+  <div class="loading-spinner"></div>
+  <p data-i18n="account.loading">正在加载账号信息…</p>
+</div>
 
-    <div class="account-grid">
-      <!-- 资料 -->
-      <section class="card">
-        <h2 data-i18n="account.profile">个人资料</h2>
-        <div class="profile-head">
-          <div class="avatar" id="avatar"></div>
-          <div>
-            <div class="profile-name" id="profileName">—</div>
-            <div class="profile-meta">
-              <span id="profileEmail">—</span>
-              <span id="emailBadge" class="badge hidden"></span>
+<!-- 未登录 -->
+<div id="authView" style="display:none;">
+  <div class="auth-left">
+    <iframe src="setup.html" class="setup-frame" title="欢迎" data-i18n-title="common.iframe_welcome" loading="lazy"></iframe>
+  </div>
+  <div class="auth-right">
+    <div class="auth-form">
+      <h2 class="auth-title" data-i18n="account.not_logged_title">你还没有登录</h2>
+      <p class="auth-subtitle" data-i18n="account.not_logged_subtitle">登录后才能查看你的通行证账号信息</p>
+      <button type="button" class="btn btn-primary" data-action="goLogin" data-i18n="account.btn_go_login">去登录 / 注册</button>
+      <div class="msg" id="authMsg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 已登录 -->
+<div class="page-main" id="mainContent" style="display:none;">
+  <div class="container">
+    <div class="page-header">
+      <h1>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        <span data-i18n="account.page_title">账号中心</span>
+      </h1>
+    </div>
+
+    <div class="personal-layout">
+      <div class="personal-col">
+        <!-- 主卡：个人资料 -->
+        <div class="card" id="profileCard">
+          <div class="profile-head">
+            <div class="profile-avatar" id="profileAvatar"></div>
+            <div class="profile-info">
+              <h2 class="profile-name" id="welcomeText"></h2>
+              <div class="profile-meta">
+                <span class="user-uid" id="userUid"></span>
+              </div>
+              <div class="user-regtime" id="userRegTime"></div>
             </div>
           </div>
+          <div class="profile-color">
+            <span class="user-color-dot" id="userColor" style="background:#ccc;"></span>
+            <span id="userColorText">专属颜色</span>
+          </div>
         </div>
-        <form id="profileForm" novalidate>
+
+        <!-- 修改个人资料：不可折叠 -->
+        <div class="card card-profile-edit" id="profileEditCard">
+          <div class="profile-edit-title" data-i18n="account.profile_edit_title">✏️ 修改个人资料</div>
+          <div class="profile-edit-body">
+            <div class="field">
+              <label data-i18n="account.label_nickname">昵称</label>
+              <input id="accNickname" type="text" maxlength="20" placeholder="1-20 个字符" data-i18n-placeholder="account.ph_nickname">
+              <div class="hint" data-i18n="account.hint_nickname">昵称是你在各站展示的名字，修改后所有接入站点都会同步</div>
+            </div>
+            <div class="field color-field">
+              <label data-i18n="account.label_color">专属颜色</label>
+              <button type="button" class="color-trigger" id="colorTrigger" data-action="toggleColorMenu">
+                <span class="color-dot" id="colorPreviewDot" style="background:#ccc;"></span>
+                <span class="color-trigger-text" id="colorPreviewLabel">点击选择专属颜色</span>
+                <svg class="chevron small" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="hint" data-i18n="account.hint_color">点击弹出调色板，选择你的专属颜色</div>
+              <div class="color-menu" id="colorMenu">
+                <div class="color-menu-title" data-i18n="account.color_menu_title">选择专属颜色</div>
+                <div class="color-menu-grid" id="colorMenuGrid"></div>
+              </div>
+            </div>
+            <div class="field">
+              <label data-i18n="account.label_email">邮箱</label>
+              <input id="accEmail" type="email" readonly placeholder="在下方邮箱卡绑定/更换" data-i18n-placeholder="account.ph_email_readonly">
+              <div class="hint" data-i18n="account.hint_email_readonly">邮箱在下方「邮箱验证」卡中绑定或更换</div>
+            </div>
+            <button class="btn btn-primary" id="saveProfileBtn" data-action="saveProfile" data-i18n="account.btn_save">保存修改</button>
+            <div class="msg" id="profileMsg"></div>
+          </div>
+        </div>
+
+        <!-- 邮箱验证 -->
+        <div class="card" id="emailCard">
+          <div class="card-title-row">
+            <h3 data-i18n="account.email_card_title">📧 邮箱验证</h3>
+            <span class="email-status pending" id="emailStatusVer"><span class="pulse"></span><span id="emailStatusVerText">未验证</span></span>
+          </div>
+          <div class="card-subtitle" data-i18n="account.email_subtitle">验证你的邮箱以使用完整功能</div>
           <div class="field">
-            <label for="nickname" data-i18n="account.nickname">昵称</label>
-            <input class="input" id="nickname" maxlength="20" autocomplete="nickname" required>
+            <button type="button" class="btn btn-primary" id="sendCodeBtn" data-action="sendEmailCode" data-i18n="account.btn_send_verify">发送验证码至填写的邮箱</button>
+            <div class="code-row" id="codeRow">
+              <input id="emailCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" data-i18n-placeholder="account.ph_code">
+              <button type="button" class="btn btn-primary" id="verifyCodeBtn" data-action="verifyEmailCode" data-i18n="account.btn_verify">验证绑定</button>
+            </div>
+            <div class="msg" id="emailMsg"></div>
+          </div>
+
+          <div class="card-subtitle" style="margin-top:18px" data-i18n="account.change_email_title">更换邮箱</div>
+          <div class="field">
+            <label data-i18n="account.label_new_email">新邮箱</label>
+            <input id="changeEmail" type="email" placeholder="新邮箱地址" data-i18n-placeholder="account.ph_new_email">
           </div>
           <div class="field">
-            <label data-i18n="account.color">专属颜色</label>
-            <input type="hidden" id="colorInput">
-            <div class="color-select" id="colorDots"></div>
-          </div>
-          <button class="btn btn-primary" type="submit" data-i18n="account.save_profile">保存资料</button>
-          <p class="msg" id="profileMsg"></p>
-        </form>
-      </section>
-
-      <!-- 密码 -->
-      <section class="card">
-        <h2 data-i18n="account.password">修改密码</h2>
-        <form id="passwordForm" novalidate>
-          <div class="field">
-            <label for="oldPassword" data-i18n="account.old_password">原密码</label>
-            <input class="input" id="oldPassword" type="password" autocomplete="current-password" required>
+            <label data-i18n="account.label_current_password">当前密码</label>
+            <input id="changeEmailPass" type="password" placeholder="验证身份用" data-i18n-placeholder="account.ph_current_password" autocomplete="current-password">
           </div>
           <div class="field">
-            <label for="newPassword" data-i18n="account.new_password">新密码</label>
-            <input class="input" id="newPassword" type="password" autocomplete="new-password" required>
-          </div>
-          <div class="field">
-            <label for="newPassword2" data-i18n="account.confirm_password">确认新密码</label>
-            <input class="input" id="newPassword2" type="password" autocomplete="new-password" required>
-          </div>
-          <button class="btn btn-primary" type="submit" data-i18n="account.change_password">修改密码</button>
-          <p class="msg" id="passwordMsg"></p>
-        </form>
-      </section>
-
-      <!-- 邮箱 -->
-      <section class="card wide">
-        <h2 data-i18n="account.email_card">邮箱</h2>
-        <p class="muted">
-          <span id="emailValue">—</span>
-          <span id="emailState" class="badge" style="margin-left:8px"></span>
-        </p>
-
-        <div id="verifyBlock" class="hidden">
-          <h3 data-i18n="account.verify_now">验证邮箱</h3>
-          <div class="input-row">
-            <input class="input" id="verifyCode" inputmode="numeric" maxlength="6" placeholder="6 位数字" data-i18n-placeholder="login.code_ph">
-            <button class="btn btn-ghost" type="button" id="verifySend" data-i18n="common.send_code">获取验证码</button>
-            <button class="btn btn-primary" type="button" id="verifyBtn" data-i18n="account.verify_now">验证邮箱</button>
+            <button type="button" class="btn btn-primary" id="changeEmailSendBtn" data-action="sendChangeEmailCode" data-i18n="account.btn_send_verify">发送验证码</button>
+            <div class="code-row" id="changeEmailCodeRow" style="display:none;">
+              <input id="changeEmailCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" data-i18n-placeholder="account.ph_code">
+              <button type="button" class="btn btn-primary" id="changeEmailBtn" data-action="changeEmail" data-i18n="account.btn_change_email">确认更换</button>
+            </div>
+            <div class="msg" id="changeEmailMsg"></div>
           </div>
         </div>
 
-        <hr>
-        <h3 data-i18n="account.change_email">更换邮箱</h3>
-        <p class="small" data-i18n="account.email_hint">邮箱用于验证码登录与找回密码。</p>
-        <div class="field" style="margin-top:10px">
-          <label for="changePassword" data-i18n="account.email_password">当前密码</label>
-          <input class="input" id="changePassword" type="password" autocomplete="current-password">
-        </div>
-        <div class="field">
-          <label for="changeEmail" data-i18n="account.new_email">新邮箱</label>
-          <input class="input" id="changeEmail" type="email" autocomplete="email" data-i18n-placeholder="login.email_ph" placeholder="you@example.com">
-        </div>
-        <div class="field">
-          <label for="changeCode" data-i18n="login.code">验证码</label>
-          <div class="input-row">
-            <input class="input" id="changeCode" inputmode="numeric" maxlength="6" data-i18n-placeholder="login.code_ph" placeholder="6 位数字">
-            <button class="btn btn-ghost" type="button" id="changeSend" data-i18n="common.send_code">获取验证码</button>
-            <button class="btn btn-primary" type="button" id="changeBtn" data-i18n="account.change_email">更换邮箱</button>
+        <!-- 重置密码（折叠，默认收起） -->
+        <div class="card card-collapse" id="pwdCard">
+          <div class="collapse-title" data-action="toggleCard" data-card="pwdCard" role="button" tabindex="0">
+            <h3 data-i18n="account.pwd_card_title">🔒 重置密码</h3>
+            <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="collapse-body">
+            <div class="field">
+              <label data-i18n="account.label_old_password">原密码</label>
+              <input id="oldPassword" type="password" placeholder="当前密码" data-i18n-placeholder="account.ph_old_password" maxlength="128" autocomplete="current-password">
+            </div>
+            <div class="field">
+              <label data-i18n="account.label_new_password">新密码</label>
+              <input id="newPassword" type="password" placeholder="8-128 个字符" data-i18n-placeholder="account.ph_new_password" maxlength="128" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label data-i18n="account.label_confirm_new_password">确认新密码</label>
+              <input id="newPassword2" type="password" placeholder="再次输入新密码" data-i18n-placeholder="account.ph_confirm_new_password" maxlength="50" autocomplete="new-password">
+            </div>
+            <button class="btn btn-primary" id="changePwdBtn" data-action="changePassword" data-i18n="account.btn_change_password">修改密码</button>
+            <div class="msg" id="pwdMsg"></div>
           </div>
         </div>
-        <p class="msg" id="emailMsg"></p>
-      </section>
+      </div>
 
-      <!-- 登录设备 -->
-      <section class="card wide">
-        <h2>
-          <span data-i18n="account.sessions">登录设备</span>
-          <span class="hint" data-i18n="account.sessions_hint">这些设备正使用你的通行证。</span>
-        </h2>
-        <div class="list" id="sessionsList"></div>
-        <div style="margin-top:12px">
-          <button class="btn btn-ghost btn-sm" type="button" id="revokeOthers" data-i18n="account.revoke_others">下线其他设备</button>
+      <div class="personal-col">
+        <!-- 邀请好友 -->
+        <div class="card" id="inviteCodeCard" style="display:none;">
+          <h3 data-i18n="account.invite_title">🎫 邀请好友</h3>
+          <div class="invite-code-row">
+            <code id="inviteCodeText" class="invite-code">点击下方按钮获取</code>
+            <button class="btn btn-ghost btn-sm" id="copyInviteBtn" data-action="copyInviteCode" disabled data-i18n="account.btn_copy">复制</button>
+          </div>
+          <div class="hint" id="inviteHint" style="margin:8px 0 0;">分享给朋友注册用，一个码只能注册一次</div>
+          <button class="btn btn-primary" id="generateInviteBtn" data-action="loadInviteCode" style="margin-top:14px;" data-i18n="account.btn_generate">生成邀请码</button>
         </div>
-        <p class="msg" id="sessionsMsg"></p>
-      </section>
 
-      <!-- 已授权应用 -->
-      <section class="card wide">
-        <h2>
-          <span data-i18n="account.grants">已授权应用</span>
-          <span class="hint" data-i18n="account.grants_hint">这些应用获得过你的身份授权。</span>
-        </h2>
-        <div class="list" id="grantsList"></div>
-        <p class="msg" id="grantsMsg"></p>
-      </section>
+        <!-- 登录设备（多会话：同账号可在多台设备登录，可逐个或一次性下线） -->
+        <div class="card" id="sessionCard">
+          <div class="card-title-row">
+            <h3 data-i18n="account.session_title">💻 登录设备</h3>
+            <button class="btn btn-ghost btn-sm push-right" data-action="revokeOtherSessions" data-i18n="account.btn_revoke_others">下线其他所有设备</button>
+          </div>
+          <div id="sessionList"><div class="empty">正在加载…</div></div>
+          <div class="msg" id="sessionMsg"></div>
+        </div>
+
+        <!-- 已授权网站（账号中心里「不是在通行证本站直接登录」的会话全归这里，可整来源注销；
+             数据来自 sessions.client_id（已登记站点）+ sessions.client_label（未登记来源）+
+             apps 里已查不到的 client_id（标「已移除的站点」）） -->
+        <div class="card" id="clientCard">
+          <div class="card-title-row">
+            <h3 data-i18n="account.client_title">🌐 已授权网站</h3>
+          </div>
+          <div id="clientList"><div class="empty">正在加载…</div></div>
+          <div class="msg" id="clientMsg"></div>
+        </div>
+
+        <!-- 退出登录：大卡片 -->
+        <div class="card-logout">
+          <h3 data-i18n="account.logout_title">退出登录</h3>
+          <div class="logout-tip" data-i18n="account.logout_tip">
+            退出后在本站需重新登录，其他设备不受影响
+          </div>
+          <button class="btn-logout" data-action="logout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span data-i18n="account.btn_logout">退出登录</span>
+          </button>
+        </div>
+      </div>
     </div>
-  </main>
+  </div>
+</div>
 
-  <footer data-i18n="common.copy">2026 青翔未阔工作室 · Qxwk 通行证</footer>
+<footer class="footer"><div class="footer-copy" data-i18n="footer.copy">2026 青翔未阔工作室 · Qxwk 通行证</div></footer>
 
-  <script src="app.js"></script>
-  <script src="account.js"></script>
+<script src="app.js"></script>
+<script src="account.js" defer></script>
 </body>
 </html>

@@ -1,111 +1,58 @@
-// Qxwk 通行证 · 前端 API 客户端（Cookie 会话）
+// Qxwk-Account 通行证 · 共享前端逻辑：API 客户端 + 会话缓存
 //
-// 登录态完全由 HttpOnly 的 qx_session Cookie 承载，前端不存 token。
-// 所有请求默认 credentials: 'same-origin'，写操作统一 JSON。
+// 第二版：登录态由 HttpOnly 的 qx_session Cookie 承载，前端不再保存 token。
+// localStorage 只留一份用户快照（昵称/颜色/头像），用于页面首屏渲染，不作为凭证。
 
-const JSON_HEADERS = { 'Content-Type': 'application/json' };
-
-class ApiError extends Error {
-  constructor(message, status, code, params) {
-    super(message);
-    this.status = status;
-    this.code = code;
-    this.params = params || null;
-  }
-}
+const API_BASE = '/api';
+// 保留旧常量名，避免其他脚本引用时报未定义；新代码不再写入 token
+const LS_TOKEN = 'qxwp_token';
+const LS_USER = 'qxwp_user';
 
 async function api(path, options = {}) {
-  const { method = 'GET', body, headers } = options;
-  const init = {
-    method,
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const res = await fetch(API_BASE + path, {
+    ...options,
+    headers,
     credentials: 'same-origin',
-    headers: body !== undefined ? { ...JSON_HEADERS, ...(headers || {}) } : (headers || {}),
-  };
-  if (body !== undefined) init.body = JSON.stringify(body);
-
-  let res;
-  try {
-    res = await fetch(path, init);
-  } catch {
-    throw new ApiError(t('err.network'), 0, 'network');
-  }
-  if (res.status === 204) return null;
-
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const message = data.error || t('err.request_failed', { status: res.status });
-    throw new ApiError(message, res.status, data.code, data.params);
+    throw new Error(t('err.' + data.code, data.params, data.error || t('err.request_failed', { status: res.status })));
   }
   return data;
 }
 
-// 错误信息优先用后端的 code 查语言包，查不到再回退后端中文
-function errorText(err) {
-  if (!err) return t('err.request_failed', { status: '?' });
-  if (err.code) {
-    const key = 'err.' + err.code;
-    const localized = t(key, err.params, '');
-    if (localized && localized !== key) return localized;
-  }
-  return err.message || t('err.request_failed', { status: err.status || '?' });
+// 登录/注册响应统一是 { ok:true, data:{...} }；兼容旧形状
+function unwrap(data) {
+  return data && data.data ? data.data : data;
 }
 
-function showMsg(el, message, kind = 'error') {
-  if (!el) return;
-  el.textContent = message || '';
-  el.className = 'msg' + (message ? ' ' + kind : '');
+function saveSession(data) {
+  const u = unwrap(data);
+  if (!u) return;
+  localStorage.setItem(LS_USER, JSON.stringify({
+    userId: u.userId || u.sub,
+    nickname: u.nickname,
+    color: u.color,
+    email: u.email || null,
+    email_verified: !!u.email_verified,
+    avatar: u.avatar || null,
+  }));
 }
 
-function fmtDate(value) {
-  if (!value) return '';
-  const d = new Date(String(value).replace(' ', 'T') + (String(value).includes('Z') ? '' : 'Z'));
-  if (Number.isNaN(d.getTime())) return String(value);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function safeReturnTo(raw) {
-  const s = String(raw || '');
-  if (s.startsWith('/') && !s.startsWith('//') && !s.startsWith('/\\')) return s;
-  return '/account.html';
-}
-
-function setBusy(button, busy, busyText) {
-  if (!button) return;
-  if (busy) {
-    button.dataset.label = button.textContent;
-    button.textContent = busyText || t('common.loading');
-    button.disabled = true;
-  } else {
-    button.textContent = button.dataset.label || button.textContent;
-    button.disabled = false;
+function getSession() {
+  try {
+    const u = localStorage.getItem(LS_USER);
+    return u ? JSON.parse(u) : null;
+  } catch {
+    return null;
   }
 }
 
-// 头像：有 URL 用图片，否则「昵称首字 + 专属颜色」
-function renderAvatar(el, user) {
-  if (!el || !user) return;
-  el.textContent = '';
-  el.style.background = user.color || 'var(--primary)';
-  if (user.avatar) {
-    const img = document.createElement('img');
-    img.src = user.avatar;
-    img.alt = '';
-    img.referrerPolicy = 'no-referrer';
-    img.onerror = () => {
-      el.textContent = String(user.nickname || '?').slice(0, 1).toUpperCase();
-    };
-    el.appendChild(img);
-  } else {
-    el.textContent = String(user.nickname || '?').slice(0, 1).toUpperCase();
-  }
+function logout() {
+  // 撤销当前 Cookie 会话（幂等，失败也继续清本地）
+  fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_USER);
+  window.location.href = 'login.html';
 }
-
-window.api = api;
-window.ApiError = ApiError;
-window.errorText = errorText;
-window.showMsg = showMsg;
-window.fmtDate = fmtDate;
-window.safeReturnTo = safeReturnTo;
-window.setBusy = setBusy;
-window.renderAvatar = renderAvatar;
