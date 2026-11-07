@@ -327,8 +327,8 @@ export async function handleUserinfo(request, env) {
   if (scopes.includes('profile') || scopes.includes('phone')) {
     const p = await DB.prepare('SELECT * FROM user_profiles WHERE user_id = ?').bind(user.id).first() || {};
     if (scopes.includes('profile')) {
-      out.name = p.name || user.nickname;
-      const avatar = p.picture || getAvatarUrl(user.email);
+      out.name = user.nickname;
+      const avatar = getAvatarUrl(user.email);
       if (avatar) out.picture = avatar;
       out.color = user.color;
       if (p.locale) out.locale = p.locale;

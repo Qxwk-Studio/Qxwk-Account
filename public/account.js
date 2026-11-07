@@ -157,13 +157,25 @@ document.addEventListener('click', function (e) {
 
 // 填充修改资料表单。data 由启动时的 /api/me 结果直接传入——本函数原先自己再 await api('/me')，
 // 与启动校验那一次完全重复，白白多出一趟串行往返（账号中心的加载转圈因此翻倍）
+// profile 下拉框：已有选项优先；历史值不在列表里时补一个 option，避免显示为空
+function setSelectValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const v = value || '';
+  if (v && !Array.from(el.options).some((o) => o.value === v)) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v;
+    el.appendChild(opt);
+  }
+  el.value = v;
+}
+
 function loadProfileForm(data) {
   document.getElementById('accNickname').value = data.nickname || '';
   document.getElementById('accEmail').value = data.email || '';
-  document.getElementById('accName').value = data.name || '';
-  document.getElementById('accPicture').value = data.picture || '';
-  document.getElementById('accLocale').value = data.locale || '';
-  document.getElementById('accZoneinfo').value = data.zoneinfo || '';
+  setSelectValue('accLocale', data.locale);
+  setSelectValue('accZoneinfo', data.zoneinfo);
   document.getElementById('accWebsite').value = data.website || '';
   renderColorPicker(data.color);
   syncColorTrigger(data.color);
@@ -349,10 +361,8 @@ async function saveProfile() {
       body: JSON.stringify({
         nickname,
         color: selectedColor || undefined,
-        name: document.getElementById('accName').value.trim(),
-        picture: document.getElementById('accPicture').value.trim(),
-        locale: document.getElementById('accLocale').value.trim(),
-        zoneinfo: document.getElementById('accZoneinfo').value.trim(),
+        locale: document.getElementById('accLocale').value,
+        zoneinfo: document.getElementById('accZoneinfo').value,
         website: document.getElementById('accWebsite').value.trim(),
       }),
     });

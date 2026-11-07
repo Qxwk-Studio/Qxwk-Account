@@ -175,16 +175,13 @@ async function finishPasswordLogin(DB, user, request, method = 'password') {
 // ---------------------------------------------------------------------------
 // 资料更新
 // ---------------------------------------------------------------------------
-const PROFILE_FIELDS = ['name', 'picture', 'locale', 'zoneinfo', 'website'];
+// 只允许更新 user_profiles 里不重复的字段；name/picture 分别由昵称与邮箱头像派生
+const PROFILE_FIELDS = ['locale', 'zoneinfo', 'website'];
 
 function cleanProfileValue(key, value) {
   if (value === null || value === undefined || value === '') return { value: null };
   const s = String(value).trim();
-  if (key === 'name') {
-    if (s.length > 50) return { error: '显示名称不能超过 50 个字符' };
-    return { value: s };
-  }
-  if (key === 'picture' || key === 'website') {
+  if (key === 'website') {
     if (!/^https:\/\//i.test(s)) return { error: '链接必须以 https:// 开头' };
     if (s.length > 500) return { error: '链接过长' };
     return { value: s };
@@ -203,8 +200,9 @@ function cleanProfileValue(key, value) {
 async function updateProfile(DB, userId, body) {
   const current = await DB.prepare('SELECT * FROM user_profiles WHERE user_id = ?').bind(userId).first() || {};
   const next = {
-    name: current.name ?? null,
-    picture: current.picture ?? null,
+    // name/picture 不再单独存：OIDC 输出时用昵称与邮箱头像派生；这里顺手清掉历史重复数据
+    name: null,
+    picture: null,
     locale: current.locale ?? null,
     zoneinfo: current.zoneinfo ?? null,
     website: current.website ?? null,

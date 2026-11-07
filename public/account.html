@@ -165,7 +165,7 @@
 
   /* ========= Profile Form（修改个人资料） ========= */
   label { display: block; font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
-  input {
+  input, select {
     width: 100%;
     padding: 10px 14px;
     border: 1.5px solid var(--border);
@@ -176,7 +176,7 @@
     background: var(--surface);
     transition: border-color var(--transition), box-shadow var(--transition);
   }
-  input:focus {
+  input:focus, select:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px var(--primary-light);
@@ -492,7 +492,7 @@
   :root[data-theme="dark"] .user-color-dot { border-color: #0f172a; }
 
   /* ===== 黑夜模式：修改资料表单 + 色板 + 退出卡 ===== */
-  :root[data-theme="dark"] input { background: var(--surface); color: var(--text-primary); }
+  :root[data-theme="dark"] input, :root[data-theme="dark"] select { background: var(--surface); color: var(--text-primary); }
   :root[data-theme="dark"] input[disabled] { background: rgba(15,23,42,0.5); color: var(--text-tertiary); }
   :root[data-theme="dark"] .color-trigger { background: var(--surface); }
   :root[data-theme="dark"] .color-trigger .color-dot { border-color: #0f172a; }
@@ -601,29 +601,53 @@
               </div>
             </div>
             <div class="field">
-              <label data-i18n="account.label_name">显示名称</label>
-              <input id="accName" type="text" maxlength="50" placeholder="选填，OIDC name" data-i18n-placeholder="account.ph_name">
-            </div>
-            <div class="field">
-              <label data-i18n="account.label_picture">头像链接</label>
-              <input id="accPicture" type="url" maxlength="500" placeholder="https://…" data-i18n-placeholder="account.ph_picture">
-            </div>
-            <div class="field">
               <label data-i18n="account.label_locale">语言</label>
-              <input id="accLocale" type="text" maxlength="5" placeholder="zh-CN" data-i18n-placeholder="account.ph_locale">
+              <select id="accLocale">
+                <option value="" data-i18n="account.opt_none">不设置</option>
+                <option value="zh-CN">简体中文 (zh-CN)</option>
+                <option value="zh-TW">繁體中文 (zh-TW)</option>
+                <option value="en-US">English (en-US)</option>
+                <option value="en-GB">English (en-GB)</option>
+                <option value="ja-JP">日本語 (ja-JP)</option>
+                <option value="ko-KR">한국어 (ko-KR)</option>
+              </select>
+              <div class="hint" data-i18n="account.hint_locale">写入 OIDC 的 locale 字段，第三方站点可按此显示界面语言</div>
             </div>
             <div class="field">
               <label data-i18n="account.label_zoneinfo">时区</label>
-              <input id="accZoneinfo" type="text" maxlength="50" placeholder="Asia/Shanghai" data-i18n-placeholder="account.ph_zoneinfo">
+              <select id="accZoneinfo">
+                <option value="" data-i18n="account.opt_none">不设置</option>
+                <option value="Asia/Shanghai">Asia/Shanghai · UTC+8</option>
+                <option value="Asia/Hong_Kong">Asia/Hong_Kong · UTC+8</option>
+                <option value="Asia/Taipei">Asia/Taipei · UTC+8</option>
+                <option value="Asia/Tokyo">Asia/Tokyo · UTC+9</option>
+                <option value="Asia/Seoul">Asia/Seoul · UTC+9</option>
+                <option value="Asia/Singapore">Asia/Singapore · UTC+8</option>
+                <option value="Asia/Bangkok">Asia/Bangkok · UTC+7</option>
+                <option value="Asia/Kolkata">Asia/Kolkata · UTC+5:30</option>
+                <option value="Asia/Dubai">Asia/Dubai · UTC+4</option>
+                <option value="Europe/London">Europe/London · UTC+0</option>
+                <option value="Europe/Paris">Europe/Paris · UTC+1</option>
+                <option value="Europe/Berlin">Europe/Berlin · UTC+1</option>
+                <option value="Europe/Moscow">Europe/Moscow · UTC+3</option>
+                <option value="America/New_York">America/New_York · UTC-5</option>
+                <option value="America/Chicago">America/Chicago · UTC-6</option>
+                <option value="America/Denver">America/Denver · UTC-7</option>
+                <option value="America/Los_Angeles">America/Los_Angeles · UTC-8</option>
+                <option value="Australia/Sydney">Australia/Sydney · UTC+10</option>
+                <option value="Pacific/Auckland">Pacific/Auckland · UTC+12</option>
+              </select>
+              <div class="hint" data-i18n="account.hint_zoneinfo">写入 OIDC 的 zoneinfo 字段，第三方站点可按此显示本地时间</div>
             </div>
             <div class="field">
               <label data-i18n="account.label_website">个人网站</label>
               <input id="accWebsite" type="url" maxlength="500" placeholder="https://…" data-i18n-placeholder="account.ph_website">
+              <div class="hint" data-i18n="account.hint_website">展示在 OIDC profile 里的个人主页，必须以 https:// 开头</div>
             </div>
             <div class="field">
               <label data-i18n="account.label_email">邮箱</label>
               <input id="accEmail" type="email" readonly placeholder="在下方邮箱卡绑定/更换" data-i18n-placeholder="account.ph_email_readonly">
-              <div class="hint" data-i18n="account.hint_email_readonly">邮箱在下方「邮箱验证」卡中绑定或更换</div>
+              <div class="hint" data-i18n="account.hint_email_readonly">邮箱在「邮箱验证」卡中绑定或更换</div>
             </div>
             <button class="btn btn-primary" id="saveProfileBtn" data-action="saveProfile" data-i18n="account.btn_save">保存修改</button>
             <div class="msg" id="profileMsg"></div>
