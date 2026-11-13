@@ -97,7 +97,6 @@
       // ---- 账号中心：静态文案 ----
       'account.title': '账号中心 - 青翔未阔工作室',
       'account.description': 'Qxwk 账号通行证 · 账号中心，查看统一账号信息、管理登录设备与已授权网站。',
-      'account.loading': '正在加载账号信息…',
       'account.not_logged_title': '你还没有登录',
       'account.not_logged_subtitle': '登录后才能查看你的通行证账号信息',
       'account.btn_go_login': '去登录 / 注册',
@@ -300,7 +299,6 @@
       // ---- account center: static ----
       'account.title': 'Account Center - 青翔未阔工作室',
       'account.description': 'Qxwk account pass · Account Center — view your unified account info and manage sign-in devices and authorized sites.',
-      'account.loading': 'Loading account info…',
       'account.not_logged_title': 'You are not signed in',
       'account.not_logged_subtitle': 'Sign in to view your account pass information',
       'account.btn_go_login': 'Sign in / Sign up',

@@ -52,6 +52,27 @@
     display: flex;
     flex-direction: column;
   }
+  /* ========= 统一加载中界面（login / account / index 共用） ========= */
+  .loading-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+  }
+  .loading-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   /* ========= Navbar ========= */
   .navbar {
     position: sticky;

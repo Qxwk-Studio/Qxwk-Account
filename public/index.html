@@ -10,12 +10,11 @@
   <script src="i18n.js"></script>
 </head>
 <body>
-  <main style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center">
-    <div>
-      <p class="muted" data-i18n="common.loading">加载中…</p>
-      <p><a href="login.html">Qxwk 通行证</a></p>
-    </div>
-  </main>
+  <div class="loading-view" id="loadingView">
+    <div class="loading-spinner"></div>
+    <p data-i18n="common.loading">正在加载…</p>
+  </div>
+  <noscript><p class="muted" style="text-align:center"><a href="login.html">Qxwk 通行证</a></p></noscript>
   <script src="app.js"></script>
   <script src="index.js"></script>
 </body>

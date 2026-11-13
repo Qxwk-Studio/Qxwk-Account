@@ -224,7 +224,12 @@
   </div>
 </header>
 
-<div id="authView">
+<div class="loading-view" id="loadingView">
+  <div class="loading-spinner"></div>
+  <p data-i18n="common.loading">正在加载…</p>
+</div>
+
+<div id="authView" style="display:none;">
   <div class="auth-left">
     <iframe src="setup.html" class="setup-frame" title="欢迎" data-i18n-title="common.iframe_welcome" loading="lazy"></iframe>
   </div>

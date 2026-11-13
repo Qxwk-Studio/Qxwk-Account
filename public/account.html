@@ -52,27 +52,6 @@
     margin-bottom: 28px;
   }
 
-  /* ========= 加载中：校验会话时的过渡界面 ========= */
-  .loading-view {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    color: var(--text-secondary);
-    font-size: 0.92rem;
-  }
-  .loading-spinner {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: 3px solid var(--border);
-    border-top-color: var(--primary);
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
   /* ========= 已登录：主内容区 =========
      类名**不能**叫 .main：会话行左半块也是 <div class="main">（account.js 动态生成），
      用同一个选择器会让页面级的这套 padding 顺带打到每一行上（.session-item > .main 只覆盖
@@ -530,7 +509,7 @@
 <!-- 加载中：默认显示，校验本地会话后切换（避免已登录用户先看到"未登录"界面） -->
 <div class="loading-view" id="loadingView">
   <div class="loading-spinner"></div>
-  <p data-i18n="account.loading">正在加载账号信息…</p>
+  <p data-i18n="common.loading">正在加载…</p>
 </div>
 
 <!-- 未登录 -->

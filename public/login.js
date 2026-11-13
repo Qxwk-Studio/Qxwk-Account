@@ -69,12 +69,15 @@ function applySession(data) {
   location.href = nextUrl();
 }
 
-/* 已登录自动跳转：Cookie 会话有效时直接进入目标页 */
+/* 校验会话：已登录直接跳转（返回 true），未登录返回 false */
 async function autoRedirect() {
   try {
     await api('/me');
     location.href = nextUrl();
-  } catch (e) { /* 未登录：继续展示登录表单 */ }
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function doLogin(e) {
@@ -318,4 +321,10 @@ onChange(function () {
   renderCountdowns();
 });
 
-autoRedirect();
+/* 启动：先停在统一加载界面；未登录才显示登录表单，避免已登录用户先闪一下登录页 */
+(async function boot() {
+  if (await autoRedirect()) return;
+  document.getElementById('loadingView').style.display = 'none';
+  document.getElementById('authView').style.display = '';
+  showPanel('password');
+})();
